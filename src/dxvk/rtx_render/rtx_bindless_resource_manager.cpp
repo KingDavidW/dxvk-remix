@@ -48,8 +48,8 @@ namespace dxvk {
   }
 
   VkDescriptorSet BindlessResourceManager::getGlobalBindlessTableSet(Table type) const {
-    if (m_frameLastUpdated != m_device->getCurrentFrameId())
-      throw DxvkError("Getting bindless table before it's been updated for this frame!!");
+    //if (m_frameLastUpdated != m_device->getCurrentFrameId())
+    //  throw DxvkError("Getting bindless table before it's been updated for this frame!!");
 
     return m_tables[type][currentIdx()]->bindlessDescSet;
   }

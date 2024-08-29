@@ -524,9 +524,9 @@ namespace dxvk {
     // Max User Clip Planes
     pCaps->MaxUserClipPlanes         = caps::MaxClipPlanes;
     // Max Vertex Blend Matrices
-    pCaps->MaxVertexBlendMatrices    = 4;
+    pCaps->MaxVertexBlendMatrices    = 256;
     // Max Vertex Blend Matrix Index
-    pCaps->MaxVertexBlendMatrixIndex = 8;
+    pCaps->MaxVertexBlendMatrixIndex = 256;
     // Max Point Size
     pCaps->MaxPointSize              = 256.0f;
     // Max Primitive Count
