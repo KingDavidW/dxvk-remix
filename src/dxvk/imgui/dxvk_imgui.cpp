@@ -36,6 +36,7 @@
 #include "dxvk_imgui.h"
 #include "rtx_render/rtx_imgui.h"
 #include "dxvk_device.h"
+#include "rtx_render/graph/rtx_graph_gui.h"
 #include "rtx_render/rtx_utils.h"
 #include "rtx_render/rtx_shader_manager.h"
 #include "rtx_render/rtx_camera.h"
@@ -52,6 +53,7 @@
 #include "dxvk_image.h"
 #include "../util/rc/util_rc_ptr.h"
 #include "../util/util_math.h"
+#include "../util/util_globaltime.h"
 #include "rtx_render/rtx_opacity_micromap_manager.h"
 #include "rtx_render/rtx_bridge_message_channel.h"
 #include "dxvk_imgui_about.h"
@@ -60,6 +62,7 @@
 #include "dxvk_scoped_annotation.h"
 #include "../../d3d9/d3d9_rtx.h"
 #include "dxvk_memory_tracker.h"
+#include "rtx_render/rtx_particle_system.h"
 
 
 namespace dxvk {
@@ -183,7 +186,8 @@ namespace dxvk {
     {"opacitymicromapignoretextures", "Opacity Micromap Ignore Texture (optional)", &RtxOptions::opacityMicromapIgnoreTexturesObject()},
     {"ignorebakedlightingtextures","Ignore Baked Lighting Textures (optional)", &RtxOptions::ignoreBakedLightingTexturesObject()},
     {"ignorealphaontextures","Ignore Alpha Channel of Textures (optional)", &RtxOptions::ignoreAlphaOnTexturesObject()},
-    {"raytracedRenderTargetTextures","Raytraced Render Target Textures (optional)", &RtxOptions::raytracedRenderTargetTexturesObject(), ImGUI::kTextureFlagsRenderTarget}
+    {"raytracedRenderTargetTextures","Raytraced Render Target Textures (optional)", &RtxOptions::raytracedRenderTargetTexturesObject(), ImGUI::kTextureFlagsRenderTarget},
+    {"particleemittertextures","Particle Emitters (optional)", &RtxOptions::particleEmitterTexturesObject()}
   };
 
   ImGui::ComboWithKey<RenderPassGBufferRaytraceMode> renderPassGBufferRaytraceModeCombo {
@@ -224,7 +228,7 @@ namespace dxvk {
   };
 
   ImGui::ComboWithKey<GraphicsPreset> graphicsPresetCombo{
-    "Rendering Preset",
+    "Graphics Preset",
     ImGui::ComboWithKey<GraphicsPreset>::ComboEntries{ {
         {GraphicsPreset::Ultra, "Ultra"},
         {GraphicsPreset::High, "High"},
@@ -266,7 +270,7 @@ namespace dxvk {
   };
 
   ImGui::ComboWithKey<NeuralRadianceCache::QualityPreset> neuralRadianceCacheQualityPresetCombo {
-    "Neural Radiance Cache Quality",
+    "RTX Neural Radiance Cache Quality",
     ImGui::ComboWithKey<NeuralRadianceCache::QualityPreset>::ComboEntries { {
         {NeuralRadianceCache::QualityPreset::Ultra, "Ultra"},
         {NeuralRadianceCache::QualityPreset::High, "High"},
@@ -398,8 +402,8 @@ namespace dxvk {
           "It serves as a reference integration mode for validation of other indirect integration modes." },
         {IntegrateIndirectMode::ReSTIRGI, "ReSTIR GI", 
           "ReSTIR GI provides improved indirect path sampling over \"Importance Sampled\" mode with better indirect diffuse and specular GI quality at increased performance cost."},
-        {IntegrateIndirectMode::NeuralRadianceCache, "Neural Radiance Cache", 
-          "Neural Radiance Cache (NRC). NRC is an AI based world space radiance cache. It is live trained by the path tracer\n"
+        {IntegrateIndirectMode::NeuralRadianceCache, "RTX Neural Radiance Cache", 
+          "RTX Neural Radiance Cache (NRC). NRC is an AI based world space radiance cache. It is live trained by the path tracer\n"
           "and allows paths to terminate early by looking up the cached value and saving performance.\n"
           "NRC supports infinite bounces and often provides results closer to that of reference than ReSTIR GI\n"
           "while increasing performance in scenarios where ray paths have 2 or more bounces on average."}
@@ -537,11 +541,19 @@ namespace dxvk {
       {    TerrainMode::AsDecals, "Terrain-as-Decals"},
   });
 
+  static auto themeCombo = ImGui::ComboWithKey<ImGUI::Theme>(
+    "Mode##theme",
+    {
+      {ImGUI::Theme::Toolkit,  "Default Theme"},
+      {ImGUI::Theme::Legacy,   "Legacy Theme"},
+      {ImGUI::Theme::Nvidia,   "NVIDIA Theme"},
+  });
+
   // Styles 
   constexpr ImGuiSliderFlags sliderFlags = ImGuiSliderFlags_AlwaysClamp;
   constexpr ImGuiTreeNodeFlags collapsingHeaderClosedFlags = ImGuiTreeNodeFlags_CollapsingHeader;
   constexpr ImGuiTreeNodeFlags collapsingHeaderFlags = collapsingHeaderClosedFlags | ImGuiTreeNodeFlags_DefaultOpen;
-  constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+  constexpr ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_AlwaysVerticalScrollbar;
   constexpr ImGuiWindowFlags popupWindowFlags = ImGuiWindowFlags_NoSavedSettings;
 
   ImGui::ComboWithKey<UpscalerType>& getUpscalerCombo(DxvkDLSS& dlss, DxvkRayReconstruction& rayReconstruction) {
@@ -579,7 +591,8 @@ namespace dxvk {
   : m_device (device)
   , m_hwnd   (nullptr)
   , m_about  (new ImGuiAbout)
-  , m_splash  (new ImGuiSplash) {
+  , m_splash  (new ImGuiSplash)
+  , m_graphGUI  (new RtxGraphGUI) {
     // Clamp Option ranges
 
     RTX_OPTION_CLAMP(reflexStatRangeInterpolationRate, 0.0f, 1.0f);
@@ -943,7 +956,7 @@ namespace dxvk {
     if (showUI == UIType::Advanced) {
       showMainMenu(ctx);
 
-      // Uncomment to see the ImGUI demo, good reference!  Also, need to undefine IMGUI_DISABLE_DEMO_WINDOWS (in "imgui_demo.cpp")
+      // Uncomment to see the ImGUI demo, good reference!  Also, need to undefine IMGUI_DISABLE_DEMO_WINDOWS (in "imconfig.h")
       //ImGui::ShowDemoWindow();
     }
 
@@ -1018,31 +1031,22 @@ namespace dxvk {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(m_windowOnRight ? viewport->Size.x - m_windowWidth : 0.f, viewport->Pos.y));
     ImGui::SetNextWindowSize(ImVec2(m_windowWidth, viewport->Size.y));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.f, 0.f, 0.f, 0.6f));
 
     // Remember switch state first, the switch UI when the curent window is finished.
     int switchUI = -1;
+    bool advancedMenuOpen = RtxOptions::showUI() == UIType::Advanced;
 
-    if (ImGui::Begin("RTX Remix Developer Menu", nullptr, windowFlags)) {
-      ImGui::Separator();
+    if (ImGui::Begin("RTX Remix Developer Menu", &advancedMenuOpen, windowFlags)) {
+      // Begin handles window resize so this is fine. Do not set m_windowWidth after tabs so that tabs can modify the width
+      m_windowWidth = ImGui::GetWindowWidth();
 
-      ImGui::Columns(2);
-
-      // Center align 
-      const float buttonWidth = 170;
-      const float width = ImGui::GetColumnWidth();
-      ImGui::SetCursorPosX((width - buttonWidth) / 2);
-
-      if (ImGui::Button("Graphics Settings Menu", ImVec2(buttonWidth, 0))) {
+      if (ImGui::Button("Graphics Settings Menu", ImVec2(ImGui::GetContentRegionAvail().x * 0.74f, 0))) {
         switchUI = (int) UIType::Basic;
       }
 
-      ImGui::NextColumn();
-
-      ImGui::Checkbox("Always Developer Menu", &RtxOptions::defaultToAdvancedUIObject());
+      ImGui::SameLine(0.0f, 4.0f);
+      ImGui::Checkbox("Default Menu", &RtxOptions::defaultToAdvancedUIObject());
       
-      ImGui::EndColumns();
-
       ImGui::Separator();
 
       const static ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_NoCloseWithMiddleMouseButton;
@@ -1089,30 +1093,38 @@ namespace dxvk {
 
         ImGui::EndTabBar();
       }
-
-      m_windowWidth = ImGui::GetWindowWidth();
     }
+
+    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 2));
 
     ImGui::Checkbox("Save Changed Settings Only", &RtxOptions::serializeChangedOptionOnlyObject());
-    if (ImGui::Button("Save Settings")) {
+    const float buttonWidth = ImGui::GetContentRegionAvail().x / 3 - (ImGui::GetStyle().ItemSpacing.x);
+
+    if (IMGUI_ADD_TOOLTIP(ImGui::Button("Save Settings", ImVec2(buttonWidth, 0)), "Changes are now saved to user.conf. Use the 'Save' button in the rtx.conf layer if you want to store them there for sharing.")) {
+
+
       RtxOptions::serialize();
     }
-    ImGui::SetTooltipToLastWidgetOnHover("This will save above settings in the rtx.conf file. Some may only take effect on next launch.");
 
     ImGui::SameLine();
-    if (ImGui::Button("Reset Settings")) {
-      RtxOptions::reset();
+    if (IMGUI_ADD_TOOLTIP(ImGui::Button("Reset settings", ImVec2(buttonWidth, 0)), "Reset all real-time changed settings.")) {
+      RtxOptionLayer::setResetSettings(true);
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Hide UI")) {
+    if (ImGui::Button("Hide UI", ImVec2(buttonWidth, 0))) {
       switchUI = (int) UIType::None;
     }
-    ImGui::Text("Alt + Del: toggle cursor");
-    ImGui::SameLine();
-    ImGui::Text("Alt + Backspace: toggle game input");
-    ImGui::PopStyleColor();
+
+    ImGui::TextCentered("[Alt + Del] Toggle cursor        [Alt + Backspace] Toggle game input");
     ImGui::End();
+
+    // Close via titlebar close button
+    if (!advancedMenuOpen) {
+      switchUI = (int) UIType::None;
+    }
 
     if (switchUI >= 0) {
       switchMenu((UIType) switchUI);
@@ -1131,25 +1143,36 @@ namespace dxvk {
       ImGui::OpenPopup(m_userGraphicsWindowTitle);
     }
 
-    ImGui::SetNextWindowPos(ImVec2(viewport->Size.x * 0.5 - m_userWindowWidth * 0.5, viewport->Size.y * 0.5 - m_userWindowHeight * 0.5));
+    ImGui::SetNextWindowPos(ImVec2(viewport->Size.x * 0.5f - m_userWindowWidth * 0.5f, viewport->Size.y * 0.5f - m_userWindowHeight * 0.5f));
     ImGui::SetNextWindowSize(ImVec2(m_userWindowWidth, 0));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(m_userWindowWidth, 0), ImVec2(m_userWindowWidth, m_userWindowHeight));
 
     // Note: When changing this padding consider:
     // - Checking to ensure text including less visible instances from hover tooltips and etc do not take up more
     // lines such that empty text lines become ineffective (to prevent jittering when text changes).
     // - Updating Dummy elements as they currently are based on half the y padding for spacing consistency.
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(74, 10));
+    constexpr float windowPaddingX = 74.0f;
+    constexpr float windowPaddingHalfX = windowPaddingX * 0.5f;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(windowPaddingX, 10));
 
-    if (ImGui::BeginPopupModal(m_userGraphicsWindowTitle, NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    // Use the same background color and alpha as other menus, PopupBg has alpha 1 because it's used for combobox popups etc. 
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+    bool pushedPopupBg = true;
+
+    bool basicMenuOpen = RtxOptions::showUI() == UIType::Basic;
+    if (ImGui::BeginPopupModal(m_userGraphicsWindowTitle, &basicMenuOpen, ImGuiWindowFlags_AlwaysAutoResize)) {
+      // Restore PopupBg
+      ImGui::PopStyleColor();
+      pushedPopupBg = false;
+
       // Always display memory stats to user.
       showMemoryStats();
 
-      const int itemWidth = 140;
-      const int subItemWidth = 120;
-      constexpr int subItemIndent = (itemWidth > subItemWidth) ? (itemWidth - subItemWidth) : 0;
+      const int itemWidth = static_cast<int>(largeUiMode() ? m_largeUserWindowWidgeWidth : m_regularUserWindowWidgetWidth);
+      const int subItemWidth = static_cast<int>(ImCeil(itemWidth * 0.86f));
+      const int subItemIndent = (itemWidth > subItemWidth) ? (itemWidth - subItemWidth) : 0;
 
-      ImGui::PushItemWidth(itemWidth);
-
+      const ImVec2 childSize = ImVec2(ImGui::GetContentRegionAvail().x + windowPaddingX, m_userWindowHeight * 0.63f);
       const static ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_NoCloseWithMiddleMouseButton;
       const static ImGuiTabItemFlags tab_item_flags = ImGuiTabItemFlags_NoCloseWithMiddleMouseButton;
 
@@ -1159,61 +1182,97 @@ namespace dxvk {
         ImGui::Dummy({ 0.f, 4.f });
       }
 
+      ImGui::PopStyleVar();
+
+      auto beginTabChild = [&windowPaddingHalfX, &childSize, &itemWidth](const char* tabID) -> void {
+        // Make child window start at the same X offset as the tab bar separator
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() - windowPaddingHalfX);
+
+        // Make widgets within the child start at the same X offset as widgets outside of the child
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(windowPaddingHalfX, 10));
+        ImGui::BeginChild(tabID, childSize, true);
+
+        ImGui::PushItemWidth(static_cast<float>(itemWidth));
+        };
+
+      auto endTabChild = []() -> void {
+        ImGui::PopItemWidth();
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+        };
+
+
       if (ImGui::BeginTabBar("Settings Tabs", tab_bar_flags)) {
         if (ImGui::BeginTabItem("General", nullptr, tab_item_flags)) {
+          beginTabChild("##tab_child_general");
           showUserGeneralSettings(ctx, subItemWidth, subItemIndent);
-
+          endTabChild();
           ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Rendering", nullptr, tab_item_flags)) {
+        if (ImGui::BeginTabItem("Graphics", nullptr, tab_item_flags)) {
+          beginTabChild("##tab_child_graphics");
           showUserRenderingSettings(ctx, subItemWidth, subItemIndent);
-
+          endTabChild();
           ImGui::EndTabItem();
         }
 
         if (ImGui::BeginTabItem("Content", nullptr, tab_item_flags)) {
+          beginTabChild("##tab_child_content");
           showUserContentSettings(ctx, subItemWidth, subItemIndent);
-
+          endTabChild();
           ImGui::EndTabItem();
         }
 
         ImGui::EndTabBar();
       }
 
-      ImGui::Separator();
-      ImGui::Dummy(ImVec2(0.0f, 5.0f));
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(windowPaddingHalfX, 10));
+      ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
       // Center align 
-      const float buttonWidth = 170;
-      const float width = ImGui::GetWindowSize().x;
-      ImGui::SetCursorPosX((width - (buttonWidth * 3)) / 2);
+      const ImVec2 buttonSize = ImVec2((ImGui::GetWindowSize().x - windowPaddingX) / 2, 36);
 
-      if (ImGui::Button("Developer Settings Menu", ImVec2(buttonWidth, 0))) {
+      // Make child window start at X offset of tab bar separator
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() - windowPaddingHalfX);
+
+      if (ImGui::Button("Developer Settings Menu", buttonSize)) {
         switchMenu(UIType::Advanced);
       }
 
       ImGui::SameLine();
 
-      if (ImGui::Button("Save Settings", ImVec2(buttonWidth, 0))) {
+      const bool unsavedChanges = m_userGraphicsSettingChanged;
+      if (unsavedChanges) {
+
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.35f, 0.14f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.43f, 0.22f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
+      }
+
+      if (ImGui::Button("Save Settings", buttonSize)) {
         RtxOptions::serialize();
         m_userGraphicsSettingChanged = false;
       }
 
-      ImGui::SetTooltipToLastWidgetOnHover("This will save above settings in the rtx.conf file. Some may only take effect on next launch.");
-
-      ImGui::SameLine();
-
-      if (ImGui::Button("Close", ImVec2(buttonWidth, 0))) {
-        switchMenu(UIType::None);
+      if (unsavedChanges) {
+        ImGui::PopStyleColor(3);
+        ImGui::SetTooltipToLastWidgetOnHover("Settings have been changed!\nThis will save settings in the rtx.conf file.\nSome may only take effect on next launch.");
+      }
+      else {
+        ImGui::SetTooltipToLastWidgetOnHover("This will save above settings in the rtx.conf file.\nSome may only take effect on next launch.");
       }
 
-      if (m_userGraphicsSettingChanged) {
-        ImGui::TextWrapped("Settings have been changed, click 'Save Settings' to save them and persist on next launch");
-      }
-
-      ImGui::PopItemWidth();
       ImGui::EndPopup();
+    }
+
+    if (pushedPopupBg) {
+      ImGui::PopStyleColor();
+    }
+
+    // Close via titlebar close button
+    if (!basicMenuOpen) {
+      switchMenu(UIType::None);
     }
 
     ImGui::PopStyleVar();
@@ -1274,6 +1333,7 @@ namespace dxvk {
 
     // Upscaling Settings
 
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
     ImGui::TextSeparator("Upscaling Settings");
 
     {
@@ -1362,11 +1422,13 @@ namespace dxvk {
 
     // Latency Reduction Settings
     if (dlfgSupported) {
+      ImGui::Dummy(ImVec2(0.0f, 3.0f));
       ImGui::TextSeparator("Frame Generation Settings");
       showDLFGOptions(ctx);
     }
 
     if (reflexInitialized) {
+      ImGui::Dummy(ImVec2(0.0f, 3.0f));
       ImGui::TextSeparator("Latency Reduction Settings");
 
       {
@@ -1410,14 +1472,9 @@ namespace dxvk {
       indirectLightParticlesLevel = RtxOptions::enableUnorderedEmissiveParticlesInIndirectRays() ? 2 : 1;
     }
 
-    // Map presets to options
-
-    if (m_userGraphicsSettingChanged) {
-      RtxOptions::updateGraphicsPresets(ctx->getDevice().ptr());
-    }
-
     // Path Tracing Settings
 
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
     ImGui::TextSeparator("Path Tracing Settings");
 
     {
@@ -1426,7 +1483,6 @@ namespace dxvk {
 
       m_userGraphicsSettingChanged |= minPathBouncesCombo.getKey(&RtxOptions::pathMinBouncesObject());
       m_userGraphicsSettingChanged |= maxPathBouncesCombo.getKey(&RtxOptions::pathMaxBouncesObject());
-      m_userGraphicsSettingChanged |= ImGui::Checkbox("Enable Volumetric Lighting", &RtxGlobalVolumetrics::enableObject());
       m_userGraphicsSettingChanged |= indirectLightingParticlesCombo.getKey(&indirectLightParticlesLevel);
       ImGui::SetTooltipToLastWidgetOnHover("Controls the quality of particles in indirect (reflection/GI) rays.");
 
@@ -1439,7 +1495,6 @@ namespace dxvk {
         ImGui::BeginDisabled(!enableNeuralRadianceCache);
         
         if (neuralRadianceCacheQualityPresetCombo.getKey(&NeuralRadianceCache::NrcOptions::qualityPresetObject())) {
-          nrc.applyQualityPreset();
           m_userGraphicsSettingChanged = true;
         }
 
@@ -1455,8 +1510,22 @@ namespace dxvk {
       ImGui::EndDisabled();
     }
 
+    // Volumetrics Settings
+
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
+    ImGui::TextSeparator("RTX Volumetrics Settings");
+    {
+      m_userGraphicsSettingChanged |= ImGui::Checkbox("Enable Volumetric Lighting", &RtxGlobalVolumetrics::enableObject());
+      ImGui::BeginDisabled(!RtxGlobalVolumetrics::enable());
+      ImGui::Indent(static_cast<float>(subItemIndent));
+      common->metaGlobalVolumetrics().showImguiUserSettings();
+      ImGui::EndDisabled();
+      ImGui::Unindent(static_cast<float>(subItemIndent));
+    }
+
     // Post Effect Settings
 
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
     ImGui::TextSeparator("Post Effect Settings");
 
     {
@@ -1491,6 +1560,7 @@ namespace dxvk {
 
     // Other Settings
 
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
     ImGui::TextSeparator("Other Settings");
 
     {
@@ -1708,7 +1778,7 @@ namespace dxvk {
   }
 
   void ImGUI::showDevelopmentSettings(const Rc<DxvkContext>& ctx) {
-    ImGui::PushItemWidth(250);
+    ImGui::PushItemWidth((largeUiMode() ? m_largeWindowWidgetWidth : m_regularWindowWidgetWidth) + 50.0f);
     if (ImGui::Button("Take Screenshot")) {
       RtxContext::triggerScreenshot();
     }
@@ -1905,10 +1975,6 @@ namespace dxvk {
       ImGui::DragFloat3("Instance World Offset", &RtxOptions::instanceOverrideWorldOffsetObject(), 0.1f, -100.f, 100.f, "%.3f", sliderFlags);
       ImGui::Checkbox("Instance - Print Hash", &RtxOptions::instanceOverrideSelectedInstancePrintMaterialHashObject());
 
-#ifdef REMIX_DEVELOPMENT
-      ImGui::Checkbox("Show DLSS-RR Options", &RtxOptions::showRayReconstructionUIObject());
-#endif
-
       ImGui::Unindent();
       ImGui::Checkbox("Throttle presents", &RtxOptions::enablePresentThrottleObject());
       if (RtxOptions::enablePresentThrottle()) {
@@ -1972,6 +2038,144 @@ namespace dxvk {
         ImGui::Unindent();
       }
 #endif
+
+      if (ImGui::CollapsingHeader("Option Layers")) {
+        ImGui::Indent();
+
+        if (IMGUI_ADD_TOOLTIP(ImGui::Button("Disable Layers"), "Reset all settings to Default.")) {
+          for (auto& [priority, optionLayer] : RtxOptionImpl::getRtxOptionLayerMap()) {
+            optionLayer.requestEnabled(false);
+          }
+        }
+
+        ImGui::SameLine();
+        if (IMGUI_ADD_TOOLTIP(ImGui::Button("Enable Layers"), "Enable all option layers.")) {
+          for (auto& [priority, optionLayer] : RtxOptionImpl::getRtxOptionLayerMap()) {
+            optionLayer.requestEnabled(true);
+          }
+        }
+
+        uint32_t optionLayerCounter = 1;
+        for (auto& [priority, optionLayer] : RtxOptionImpl::getRtxOptionLayerMap()) {
+          // Runtime option layer priority is reserved for real-time user changes.
+          // These layers should not be modified through the GUI.
+          if (priority != RtxOptionLayer::s_runtimeOptionLayerPriority) {
+            ImGui::Dummy(ImVec2(0.0f, 5.0f));
+            const std::string optionLayerName = optionLayer.getName();
+            
+            // Process the display name
+            std::string displayName;
+            // construct "rtx-remix/mods/" using OS appropriate separator
+            const std::string modsMarker = (std::filesystem::path("rtx-remix") / "mods" / "").string();
+            size_t modsPos = optionLayerName.find(modsMarker);
+
+            constexpr size_t kLongestPathLength = 30;
+            if (modsPos != std::string::npos) {
+              // Extract portion after "mods/"
+              displayName = optionLayerName.substr(modsPos + modsMarker.length());
+            } else if (optionLayerName.length() > kLongestPathLength) {
+              // Take last 30 characters
+              displayName = "..." + optionLayerName.substr(optionLayerName.length() - kLongestPathLength);
+            } else {
+              displayName = optionLayerName;
+            }
+            
+            const std::string optionLayerText = std::to_string(optionLayerCounter++) + ". " + displayName;
+            const std::string optionLayerStrengthText = " Strength";
+            const std::string optionLayerThresholdText = " Threshold";
+            
+            // Use pending values for UI display and send requests on change
+            bool pendingEnabled = optionLayer.getPendingEnabled();
+            if (IMGUI_ADD_TOOLTIP(ImGui::Checkbox(optionLayerText.c_str(), &pendingEnabled), optionLayer.getName().c_str())) {
+              optionLayer.requestEnabled(pendingEnabled);
+            }
+
+            float pendingStrength = optionLayer.getPendingBlendStrength();
+            if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerStrengthText.c_str(), &pendingStrength, 0.0f, 1.0f),
+                                  "Adjusts the blending strength of this option layer (0 = off, 1 = full effect).")) {
+              optionLayer.requestBlendStrength(pendingStrength);
+            }
+
+            float pendingThreshold = optionLayer.getPendingBlendThreshold();
+            if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerThresholdText.c_str(), &pendingThreshold, 0.0f, 1.0f),
+                                  "Sets the blending strength threshold for this option layer. Only applicable to non-float variables. The option is applied only when the blend strength exceeds this threshold.")) {
+              optionLayer.requestBlendThreshold(pendingThreshold);
+            }
+
+            // Disabled because this blows away the existing settings and replaces it with the current runtime settings.
+            // TODO make this save out the combo of existing settings and runtime settings.
+            // const std::string optionLayerSavingText = "Save realtime changes into layer " + displayName;
+            // if (ImGui::Button(optionLayerSavingText.c_str())) {
+            //   RtxOptions::serializeOptionLayer(optionLayer.getName());
+            // }
+
+            if (ImGui::CollapsingHeader(("Contents of " + displayName).c_str(), collapsingHeaderClosedFlags)) {
+              ImGui::Indent();
+              const std::string priorityText = "Priority: " + std::to_string(optionLayer.getPriority());
+              ImGui::Text(priorityText.c_str());
+              if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                  "Layers are applied starting with the lowest priority layer, ending with the highest.\n"
+                  "Each layer overrides the values written before it.\n"
+                  "If a layer's blendWeight is not 1 and the option is a float or Vector type,\n"
+                  "then the values will be calculated as LERP(previousValue, layerValue, blendWeight).");
+              }
+              for (const auto& option : optionLayer.getConfig().getOptions()) {
+                const std::string optionText = option.first + "=" + option.second;
+                ImGui::TextWrapped(optionText.c_str());
+              }
+              ImGui::Unindent();
+            }
+          }
+        }
+
+        ImGui::Unindent();
+      }
+
+      if (ImGui::CollapsingHeader("UI Options")) {
+        ImGui::Indent();
+
+        if (m_pendingUIOptionsScroll) {
+          ImGui::SetScrollHereY(0.0f);
+          m_pendingUIOptionsScroll = false;
+        }
+
+        {
+          if (ImGui::Checkbox("Compact UI", &compactGuiObject())) {
+            // Scroll to UI Options on the next frame
+            m_pendingUIOptionsScroll = true;
+          }
+        }
+
+        ImGui::Checkbox("Always Developer Menu", &RtxOptions::defaultToAdvancedUIObject());
+
+        if (ImGui::SliderFloat("Background Alpha", &backgroundAlphaObject(), 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+          adjustStyleBackgroundAlpha(backgroundAlpha());
+        }
+
+        
+        if (ImGui::Checkbox("Use Large UI", &largeUiModeObject())) {
+          m_pendingUIOptionsScroll = true;
+        }
+        
+
+        {
+          constexpr float indent = 60.0f;
+          ImGui::PushID("gui theme");
+          ImGui::Dummy(ImVec2(0, 2));
+          ImGui::Text("GUI Theme:");
+          ImGui::PushItemWidth(ImGui::GetContentRegionMax().x - indent);
+
+          if (themeCombo.getKey(&themeGuiObject())) {
+            m_pendingUIOptionsScroll = true;
+          }
+
+          ImGui::PopItemWidth();
+          ImGui::PopID();
+        }
+
+        ImGui::Unindent();
+      }
     }
 
     ImGui::PopItemWidth();
@@ -2167,7 +2371,7 @@ namespace dxvk {
     // should be in sync with post_fx_highlight.comp.slang::highlightIntensity(),
     // so animation of post-effect highlight and UI are same
     float animatedHighlightIntensity(uint64_t timeSinceStartMS) {
-      const float ymax = 0.65f;
+      constexpr float ymax = 0.65f;
       float t10 = 1.0f - fract(static_cast<float>(timeSinceStartMS) / 1000.0f);
       return clamp(t10 > ymax ? t10 - (1.0f - ymax) : t10, 0.0f, 1.0f) / ymax;
     }
@@ -2246,7 +2450,7 @@ namespace dxvk {
         const auto nvidiaColor = ImVec4(0.462745f, 0.725490f, 0.f, 1.f);
 
         const auto color = (texHash == textureInPopup ? blueColor : nvidiaColor);
-        const float anim = animatedHighlightIntensity(common->getSceneManager().getGameTimeSinceStartMS());
+        const float anim = animatedHighlightIntensity(GlobalTime::get().absoluteTimeMs());
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(anim * color.x, anim * color.y, anim * color.z, 1.f));
       } else if (textureHasSelection) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.996078f, 0.329412f, 0.f, 1.f));
@@ -2407,13 +2611,21 @@ namespace dxvk {
   }
 
   void ImGUI::showEnhancementsWindow(const Rc<DxvkContext>& ctx) {
-    ImGui::PushItemWidth(200);
+    ImGui::PushItemWidth(largeUiMode() ? m_largeWindowWidgetWidth : m_regularWindowWidgetWidth);
 
     m_capture->show(ctx);
     
     if(ImGui::CollapsingHeader("Enhancements", collapsingHeaderFlags | ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::Indent();
       showEnhancementsTab(ctx);
+      ImGui::Unindent();
+    }
+    
+    // Graph Visualization Section
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Graph Visualization", ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::Indent();
+      m_graphGUI->showGraphVisualization(ctx);
       ImGui::Unindent();
     }
   }
@@ -2504,7 +2716,7 @@ namespace dxvk {
     if (!ImGui::BeginTabBar("##showSetupWindow", tab_bar_flags)) {
       return;
     }
-    ImGui::PushItemWidth(200);
+    ImGui::PushItemWidth(largeUiMode() ? m_largeWindowWidgetWidth : m_regularWindowWidgetWidth);
 
     texture_popup::lastOpenCategoryActive = false;
 
@@ -2609,7 +2821,7 @@ namespace dxvk {
         }
       }
 
-      separator();
+      //separator();
       ImGui::EndTabItem();
     }
 
@@ -2767,7 +2979,7 @@ namespace dxvk {
         ImGui::Unindent();
       }
 
-      separator();
+      //separator();
       ImGui::EndTabItem();
     }
 
@@ -2775,11 +2987,262 @@ namespace dxvk {
     ImGui::EndTabBar();
   }
 
-  void ImGUI::setupStyle(ImGuiStyle* dst) {
+  void ImGUI::adjustStyleBackgroundAlpha(const float& alpha, ImGuiStyle* dst) {
+    ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
+    ImVec4& currColor = style->Colors[ImGuiCol_WindowBg];
+    currColor.w = alpha;
+  }
+
+  void ImGUI::updateWindowWidths() {
+    // Developer menu
+    m_windowWidth = largeUiMode() ? m_largeWindowWidth : m_regularWindowWidth + (compactGui() ? 0.0f : 42.0f);
+
+    // User menu popup
+    m_userWindowWidth = largeUiMode() ? m_largeUserWindowWidth : m_regularUserWindowWidth;
+    m_userWindowHeight = largeUiMode() ? m_largeUserWindowHeight : m_regularUserWindowHeight;
+  }
+
+  void ImGUI::setToolkitStyle(ImGuiStyle* dst) {
     ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
 
+    style->Alpha = 1.0f;
+    style->DisabledAlpha = 0.5f;
+
+    style->WindowPadding = ImVec2(8.0f, 10.0f);
+    style->FramePadding = compactGui() ? ImVec2(4.0f, 3.0f) : ImVec2(7.0f, 5.0f);
+    style->CellPadding = ImVec2(5.0f, 4.0f);
+    style->ItemSpacing = compactGui() ? ImVec2(8.0f, 4.0f) : ImVec2(3.0f, 5.0f);
+    style->ItemInnerSpacing = compactGui() ? ImVec2(4.0f, 4.0f) : ImVec2(3.0f, 8.0f);
+    style->IndentSpacing = 10.0f;
+    style->ColumnsMinSpacing = 10.0f;
+    style->ScrollbarSize = 15.0f;
+    style->GrabMinSize = 10.0f;
+
+    style->WindowBorderSize = 1.0f;
+    style->ChildBorderSize = 1.0f;
+    style->PopupBorderSize = 1.0f;
+    style->FrameBorderSize = 1.0f;
+    style->TabBorderSize = 0.0f;
+
+    style->WindowRounding = 0.0f;
+    style->ChildRounding = 2.0f;
+    style->FrameRounding = 3.0f;
+    style->PopupRounding = 2.0f;
+    style->ScrollbarRounding = 2.0f;
+    style->GrabRounding = 1.0f;
+    style->TabRounding = 2.0f;
+    style->WindowMenuButtonPosition = ImGuiDir_None;
+
+    style->WindowMinSize = ImVec2(32, 32);
+    style->TouchExtraPadding = ImVec2(0, 0);
+    style->LogSliderDeadzone = 4.0f;
+    style->TabMinWidthForCloseButton = 0.0f;
+    style->DisplayWindowPadding = ImVec2(19, 19);
+    style->DisplaySafeAreaPadding = ImVec2(3, 3);
+    style->MouseCursorScale = 1.0f;
+
+    style->Colors[ImGuiCol_WindowBg] = ImVec4(0.19f, 0.19f, 0.19f, backgroundAlpha());
+    style->Colors[ImGuiCol_PopupBg] = ImVec4(0.19f, 0.19f, 0.19f, 1.00f);
+    style->Colors[ImGuiCol_Text] = ImVec4(0.76f, 0.76f, 0.76f, 1.00f);
+    style->Colors[ImGuiCol_TextDisabled] = ImVec4(0.44f, 0.44f, 0.44f, 1.00f);
+    style->Colors[ImGuiCol_ChildBg] = ImVec4(0.16f, 0.16f, 0.16f, 0.86f);
+    style->Colors[ImGuiCol_Border] = ImVec4(0.34f, 0.34f, 0.34f, 0.86f);
+    style->Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    style->Colors[ImGuiCol_FrameBg] = ImVec4(0.19f, 0.19f, 0.19f, 1.00f);
+    style->Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.30f, 0.35f, 1.00f);
+    style->Colors[ImGuiCol_FrameBgActive] = ImVec4(0.10f, 0.15f, 0.16f, 0.59f);
+    style->Colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+    style->Colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+    style->Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
+    style->Colors[ImGuiCol_MenuBarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    style->Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
+    style->Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    style->Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.31f, 0.31f, 0.31f, 0.78f);
+    style->Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.78f, 0.78f, 0.78f, 0.33f);
+    style->Colors[ImGuiCol_CheckMark] = ImVec4(0.53f, 0.53f, 0.53f, 1.00f);
+    style->Colors[ImGuiCol_SliderGrab] = ImVec4(1.00f, 1.00f, 1.00f, 0.39f);
+    style->Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.10f, 0.46f, 0.56f, 1.00f);
+    style->Colors[ImGuiCol_Button] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    style->Colors[ImGuiCol_ButtonHovered] = ImVec4(0.27f, 0.27f, 0.27f, 1.00f);
+    style->Colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.44f, 0.45f, 1.00f);
+    style->Colors[ImGuiCol_Header] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    style->Colors[ImGuiCol_HeaderHovered] = ImVec4(0.17f, 0.25f, 0.27f, 0.78f);
+    style->Colors[ImGuiCol_HeaderActive] = ImVec4(0.17f, 0.25f, 0.27f, 0.78f);
+    style->Colors[ImGuiCol_Separator] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    style->Colors[ImGuiCol_SeparatorHovered] = ImVec4(0.15f, 0.52f, 0.66f, 0.30f);
+    style->Colors[ImGuiCol_SeparatorActive] = ImVec4(0.30f, 0.69f, 0.84f, 0.39f);
+    style->Colors[ImGuiCol_ResizeGrip] = ImVec4(0.43f, 0.43f, 0.43f, 0.51f);
+    style->Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.07f, 0.39f, 0.47f, 0.59f);
+    style->Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.30f, 0.69f, 0.84f, 0.39f);
+    style->Colors[ImGuiCol_Tab] = ImVec4(0.00f, 0.00f, 0.00f, 0.37f);
+    style->Colors[ImGuiCol_TabHovered] = ImVec4(0.22f, 0.33f, 0.36f, 1.00f);
+    style->Colors[ImGuiCol_TabActive] = ImVec4(0.11f, 0.42f, 0.51f, 1.00f);
+    style->Colors[ImGuiCol_TabUnfocused] = ImVec4(0.00f, 0.00f, 0.00f, 0.16f);
+    style->Colors[ImGuiCol_TabUnfocusedActive] = ImVec4(1.00f, 1.00f, 1.00f, 0.24f);
+    style->Colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 1.00f, 1.00f, 0.35f);
+    style->Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style->Colors[ImGuiCol_PlotHistogram] = ImVec4(1.00f, 1.00f, 1.00f, 0.35f);
+    style->Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style->Colors[ImGuiCol_TableHeaderBg] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+    style->Colors[ImGuiCol_TableBorderStrong] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_TableBorderLight] = ImVec4(0.00f, 0.00f, 0.00f, 0.54f);
+    style->Colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
+    style->Colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.11f, 0.42f, 0.51f, 0.35f);
+    style->Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_DragDropTarget] = ImVec4(0.00f, 0.51f, 0.39f, 0.31f);
+    style->Colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
+    style->Colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+    style->Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.56f);
+  }
+
+  void ImGUI::setLegacyStyle(ImGuiStyle* dst) {
+    ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
+
+    // Original ImGui theme from ImGuiStyle::ImGuiStyle()
+    style->Alpha = 1.0f;
+    style->DisabledAlpha = 0.60f;
+    style->WindowPadding = ImVec2(8, 8);
+    style->WindowRounding = 0.0f;
+    style->WindowBorderSize = 1.0f;
+    style->WindowMinSize = ImVec2(32, 32);
+    style->WindowTitleAlign = ImVec2(0.0f, 0.5f);
+    style->WindowMenuButtonPosition = ImGuiDir_Left;
+    style->ChildRounding = 0.0f;
+    style->ChildBorderSize = 1.0f;
+    style->PopupRounding = 0.0f;
+    style->PopupBorderSize = 1.0f;
+    style->FramePadding = compactGui() ? ImVec2(4, 3) : ImVec2(7, 5);
+    style->FrameRounding = 0.0f;
+    style->FrameBorderSize = 0.0f;
+    style->ItemSpacing = compactGui() ? ImVec2(8, 4) : ImVec2(3, 5);
+    style->ItemInnerSpacing = compactGui() ? ImVec2(4, 4) : ImVec2(3, 8);
+    style->CellPadding = ImVec2(4, 2);
+    style->TouchExtraPadding = ImVec2(0, 0);
+    style->IndentSpacing = 21.0f;
+    style->ColumnsMinSpacing = 6.0f;
+    style->ScrollbarSize = 14.0f;
+    style->ScrollbarRounding = 9.0f;
+    style->GrabMinSize = 10.0f;
+    style->GrabRounding = 0.0f;
+    style->LogSliderDeadzone = 4.0f;
+    style->TabRounding = 4.0f;
+    style->TabBorderSize = 0.0f;
+    style->TabMinWidthForCloseButton = 0.0f;
+    style->ColorButtonPosition = ImGuiDir_Right;
+    style->ButtonTextAlign = ImVec2(0.5f, 0.5f);
+    style->SelectableTextAlign = ImVec2(0.0f, 0.0f);
+    style->DisplayWindowPadding = ImVec2(19, 19);
+    style->DisplaySafeAreaPadding = ImVec2(3, 3);
+    style->MouseCursorScale = 1.0f;
+    style->AntiAliasedLines = true;
+    style->AntiAliasedLinesUseTex = true;
+    style->AntiAliasedFill = true;
+    style->CurveTessellationTol = 1.25f;
+    style->CircleTessellationMaxError = 0.30f;
+    ImGui::StyleColorsDark(style);
+
+    // Remix changes
+    style->Colors[ImGuiCol_WindowBg] = ImVec4(0.f, 0.f, 0.f, backgroundAlpha());
     style->Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.f, 0.f, 0.f, 0.4f);
     style->TabRounding = 1;
+  }
+
+  void ImGUI::setNvidiaStyle(ImGuiStyle* dst) {
+    ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
+
+    // Based on legacy theme
+    setLegacyStyle(style);
+
+    style->Colors[ImGuiCol_Text] = ImVec4(0.91f, 0.91f, 0.91f, 1.00f);
+    style->Colors[ImGuiCol_TextDisabled] = ImVec4(0.44f, 0.44f, 0.44f, 1.00f);
+    style->Colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 0.90f);
+    style->Colors[ImGuiCol_ChildBg] = ImVec4(0.19f, 0.19f, 0.19f, 0.80f);
+    style->Colors[ImGuiCol_PopupBg] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+    style->Colors[ImGuiCol_Border] = ImVec4(0.31f, 0.31f, 0.31f, 0.20f);
+    style->Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.23f);
+    style->Colors[ImGuiCol_FrameBg] = ImVec4(0.19f, 0.19f, 0.19f, 1.00f);
+    style->Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.33f, 0.47f, 0.08f, 1.00f);
+    style->Colors[ImGuiCol_FrameBgActive] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_TitleBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.98f);
+    style->Colors[ImGuiCol_TitleBgActive] = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
+    style->Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
+    style->Colors[ImGuiCol_MenuBarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    style->Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
+    style->Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.39f);
+    style->Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.54f, 0.54f, 0.54f, 0.47f);
+    style->Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.78f, 0.78f, 0.78f, 0.33f);
+    style->Colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style->Colors[ImGuiCol_SliderGrab] = ImVec4(1.00f, 1.00f, 1.00f, 0.39f);
+    style->Colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 1.00f, 1.00f, 0.31f);
+    style->Colors[ImGuiCol_Button] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    style->Colors[ImGuiCol_ButtonHovered] = ImVec4(0.33f, 0.47f, 0.08f, 1.00f);
+    style->Colors[ImGuiCol_ButtonActive] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_Header] = ImVec4(0.13f, 0.13f, 0.13f, 1.00f);
+    style->Colors[ImGuiCol_HeaderHovered] = ImVec4(0.33f, 0.47f, 0.08f, 1.00f);
+    style->Colors[ImGuiCol_HeaderActive] = ImVec4(0.33f, 0.47f, 0.08f, 1.00f);
+    style->Colors[ImGuiCol_Separator] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    style->Colors[ImGuiCol_SeparatorHovered] = ImVec4(0.32f, 0.46f, 0.06f, 1.00f);
+    style->Colors[ImGuiCol_SeparatorActive] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_ResizeGrip] = ImVec4(0.43f, 0.43f, 0.43f, 0.51f);
+    style->Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.32f, 0.46f, 0.06f, 1.00f);
+    style->Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_Tab] = ImVec4(0.00f, 0.00f, 0.00f, 0.37f);
+    style->Colors[ImGuiCol_TabHovered] = ImVec4(0.32f, 0.46f, 0.06f, 1.00f);
+    style->Colors[ImGuiCol_TabActive] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_TabUnfocused] = ImVec4(0.00f, 0.00f, 0.00f, 0.16f);
+    style->Colors[ImGuiCol_TabUnfocusedActive] = ImVec4(1.00f, 1.00f, 1.00f, 0.24f);
+    style->Colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 1.00f, 1.00f, 0.35f);
+    style->Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style->Colors[ImGuiCol_PlotHistogram] = ImVec4(1.00f, 1.00f, 1.00f, 0.35f);
+    style->Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style->Colors[ImGuiCol_TableHeaderBg] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+    style->Colors[ImGuiCol_TableBorderStrong] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_TableBorderLight] = ImVec4(0.00f, 0.00f, 0.00f, 0.54f);
+    style->Colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
+    style->Colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.46f, 0.73f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+    style->Colors[ImGuiCol_DragDropTarget] = ImVec4(0.00f, 0.51f, 0.39f, 0.31f);
+    style->Colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+    style->Colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
+    style->Colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+    style->Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.56f);
+  }
+
+  void ImGUI::onThemeChange(DxvkDevice* device) {
+    if (GImGui != nullptr) {
+      ImGUI& gui = device->getCommon()->getImgui();
+      gui.setupStyle();
+
+    }
+  }
+
+  void ImGUI::onBackgroundAlphaChange(DxvkDevice* device) {
+    if (GImGui != nullptr) {
+      ImGUI& gui = device->getCommon()->getImgui();
+      gui.adjustStyleBackgroundAlpha(backgroundAlpha());
+    }
+  }
+
+  void ImGUI::setupStyle(ImGuiStyle* dst) {
+    ImGui::GetIO().FontDefault = largeUiMode() ? m_largeFont : m_regularFont;
+    updateWindowWidths();
+   
+    ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
+    switch (themeGui())
+    {
+    default:
+    case Theme::Toolkit:
+      setToolkitStyle(style);
+      break;
+
+    case Theme::Legacy:
+      setLegacyStyle(style);
+      break;
+    
+    case Theme::Nvidia:
+      setNvidiaStyle(style);
+      break;
+    }
   }
 
   void ImGUI::showVsyncOptions(bool enableDLFGGuard) {
@@ -3017,7 +3480,7 @@ namespace dxvk {
   }
 
   void ImGUI::showRenderingSettings(const Rc<DxvkContext>& ctx) {
-    ImGui::PushItemWidth(200);
+    ImGui::PushItemWidth(largeUiMode() ? m_largeWindowWidgetWidth : m_regularWindowWidgetWidth);
     auto common = ctx->getCommonObjects();
 
     ImGui::Text("Disclaimer: The following settings are intended for developers,\nchanging them may introduce instability.");
@@ -3278,7 +3741,7 @@ namespace dxvk {
             ImGui::Unindent();
           }
         } else if (RtxOptions::integrateIndirectMode() == IntegrateIndirectMode::NeuralRadianceCache) {
-          if (ImGui::CollapsingHeader("Neural Radiance Cache", collapsingHeaderClosedFlags)) {
+          if (ImGui::CollapsingHeader("RTX Neural Radiance Cache", collapsingHeaderClosedFlags)) {
 
             ImGui::Indent();
             ImGui::PushID("Neural Radiance Cache");
@@ -3304,7 +3767,9 @@ namespace dxvk {
       ImGui::Unindent();
     }
 
-    if (ImGui::CollapsingHeader("Global Volumetrics", collapsingHeaderClosedFlags)) {
+    RtxParticleSystemManager::showImguiSettings();
+
+    if (ImGui::CollapsingHeader("RTX Volumetrics (Global)", collapsingHeaderClosedFlags)) {
       ImGui::Indent();
 
       common->metaGlobalVolumetrics().showImguiSettings();
@@ -3353,7 +3818,14 @@ namespace dxvk {
 
       ImGui::Separator();
       ImGui::SliderFloat("Particle Softness", &RtxOptions::particleSoftnessFactorObject(), 0.f, 0.5f);
-
+      ImGui::Separator();
+      if (ImGui::CollapsingHeader("Weighted Blended OIT", collapsingHeaderClosedFlags)) {
+        ImGui::Checkbox("Enable", &RtxOptions::wboitEnabledObject());
+        ImGui::BeginDisabled(!RtxOptions::wboitEnabled());
+        ImGui::SliderFloat("Energy Compensation", &RtxOptions::wboitEnergyLossCompensationObject(), 1.f, 10.f);
+        ImGui::SliderFloat("Depth Weight Tuning", &RtxOptions::wboitDepthWeightTuningObject(), 0.01f, 10.f);
+        ImGui::EndDisabled();
+      }
       common->metaComposite().showStochasticAlphaBlendImguiSettings();
       ImGui::Unindent();
     }
@@ -3385,7 +3857,7 @@ namespace dxvk {
         ImGui::Unindent();
       }
       bool useDoubleDenoisers = RtxOptions::denoiseDirectAndIndirectLightingSeparately();
-      if (isRayReconstructionEnabled && RtxOptions::showRayReconstructionUI()) {
+      if (isRayReconstructionEnabled) {
         if (ImGui::CollapsingHeader("DLSS-RR", collapsingHeaderClosedFlags)) {
           ImGui::Indent();
           ImGui::PushID("DLSS-RR");
@@ -3512,7 +3984,6 @@ namespace dxvk {
                                         0.5f, 1.f, 32.f, "%.1f GB", ImGuiSliderFlags_NoRoundToFormat)) {
             ctx->getCommonObjects()->getSceneManager().requestVramCompaction();
           }
-          RTX_OPTION_CLAMP(RtxOptions::TextureManager::fixedBudgetMiB, 256, 1024 * 32);
         } else {
           // always disabled drag float just to show the available texture cache budget
           ImGui::BeginDisabled(true);
@@ -3686,7 +4157,7 @@ namespace dxvk {
 
       ImGui::Checkbox("Use White Material Textures", &RtxOptions::useWhiteMaterialModeObject());
       ImGui::Separator();
-      const float kMipBiasRange = 32;
+      constexpr float kMipBiasRange = 32;
       ImGui::DragFloat("Mip LOD Bias", &RtxOptions::nativeMipBiasObject(), 0.01f, -kMipBiasRange, kMipBiasRange, "%.2f", sliderFlags);
       ImGui::DragFloat("Upscaling LOD Bias", &RtxOptions::upscalingMipBiasObject(), 0.01f, -kMipBiasRange, kMipBiasRange, "%.2f", sliderFlags);
       ImGui::Separator();
@@ -3849,7 +4320,8 @@ namespace dxvk {
 
     {
       // Add letters/symbols (NVIDIA-Sans)
-      io.FontDefault = io.Fonts->AddFontFromMemoryTTF(&___NVIDIASansMd[0], nvidiaSansLength, 0, &normalFontCfg, characterRange.Data);
+      m_regularFont = io.Fonts->AddFontFromMemoryTTF(&___NVIDIASansMd[0], nvidiaSansLength, 0, &normalFontCfg, characterRange.Data);
+      io.FontDefault = m_regularFont;
 
       // Enable merging
       normalFontCfg.MergeMode = true;

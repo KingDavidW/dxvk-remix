@@ -238,6 +238,16 @@ namespace dxvk {
     void setOption(
       const std::string& key,
       const Vector2& value);
+
+    /**
+     * \brief Sets an option
+     *
+     * \param [in] key Option name
+     * \param [in] value Option value
+     */
+    void setOption(
+      const std::string& key,
+      const Vector4& value);
     // NV-DXVK end
 
     /**
@@ -304,6 +314,20 @@ namespace dxvk {
      */
     void logOptions(const char* configName) const;
     // NV-DXVK end
+
+    // NV-DXVK start: Provide function to return options
+    const OptionMap& getOptions() const {
+      return m_options;
+    }
+    // NV-DXVK end
+
+    // NV-DXVK start: Provide function to check if option exists in current Config.
+    //                Don't call this function at the same time with getOption, which will cause searching unordered_map twice.
+    bool findOption(const char* option) const {
+      const std::string value = getOptionValue(option);
+      return value.length() > 0;
+    }
+    // NV-DXVK end
     
     // NV-DXVK start: Generic config parsing, reduce duped code
     enum Type {
@@ -321,6 +345,7 @@ namespace dxvk {
     static const Desc& getDesc(const Type& type) { return m_descs[type]; }
     template<Type type>
     static Config getConfig(const std::string& configPath = "");
+    static Config getOptionLayerConfig(const std::string& configPath);
     // NV-DXVK end
 
     /**
@@ -381,6 +406,10 @@ namespace dxvk {
     static bool parseOptionValue(
       const std::string& value,
       Vector2& result);
+
+    static bool parseOptionValue(
+      const std::string& value,
+      Vector4& result);
 
     static bool parseOptionValue(
       const std::string& value,

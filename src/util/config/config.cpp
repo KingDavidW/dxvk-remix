@@ -1161,6 +1161,10 @@ namespace dxvk {
   void Config::setOption(const std::string& key, const Vector2& value) {
     setOption(key, generateOptionString(value));
   }
+
+  void Config::setOption(const std::string& key, const Vector4& value) {
+    setOption(key, generateOptionString(value));
+  }
   // NV-DXVK end
 
   void Config::setOption(const std::string& key, const Vector3& value) {
@@ -1307,6 +1311,27 @@ namespace dxvk {
 
     return true;
   }
+
+  bool Config::parseOptionValue(
+    const std::string& value,
+    Vector4& result) {
+    std::stringstream ss(value);
+    std::string s;
+    for (int i = 0; i < 4; ++i) {
+      if (!std::getline(ss, s, ',')) {
+        return false;
+      }
+
+      float value;
+      if (!parseOptionValue(s, value)) {
+        return false;
+      }
+
+      result[i] = value;
+    }
+
+    return true;
+  }
   // NV-DXVK end
 
   bool Config::parseOptionValue(
@@ -1337,7 +1362,7 @@ namespace dxvk {
     std::string s;
     bool bFoundValidConfig = false;
     VirtualKeys virtKeys;
-    while (std::getline(ss, s, ',')) {
+    while (std::getline(ss, s, kVirtualKeyDelimiter)) {
       VirtualKey vk;
       try {
         // Strip whitespace from s
@@ -1443,6 +1468,11 @@ namespace dxvk {
   template Config Config::getConfig<Config::Type_App>(const std::string& adtlPath);
   template Config Config::getConfig<Config::Type_RtxUser>(const std::string& adtlPath);
   template Config Config::getConfig<Config::Type_RtxMod>(const std::string& adtlPath);
+
+  Config Config::getOptionLayerConfig(const std::string& configPath) {
+    Logger::info(str::format("Attempting to parse option layer: ", configPath, "..."));
+    return parseConfigFile(configPath);
+  }
   // NV-DXVK end 
 
   Config Config::getAppConfig(const std::string& appName) {

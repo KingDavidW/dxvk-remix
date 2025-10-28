@@ -27,12 +27,17 @@
 #include <filesystem>
 #include <cassert>
 #include <array>
+#include <optional>
+#include <fstream>
 
 namespace version {
   static constexpr uint64_t fileSysV = 1;
 }
 
 namespace dxvk::util {
+
+bool createDirectories(const std::filesystem::path& path);
+std::optional<std::ofstream> createDirectoriesAndOpenFile(const std::filesystem::path& filePath);
 
 class RtxFileSys {
 public:
@@ -55,7 +60,7 @@ private:
   };
   // EDIT RTX FILESYSTEM PATHS HERE
   static inline const std::array<PathSpec,kNumIds> s_pathSpecs = {
-    PathSpec{ Mods,     join(".", "rtx-remix", "mods"),     ""                  },
+    PathSpec{ Mods,     join(".", "rtx-remix", "mods"),     "DEFAULT_MODS_DIR"  },
     PathSpec{ Captures, join(".", "rtx-remix", "captures"), "DXVK_CAPTURE_PATH" },
     PathSpec{ Logs,     join(".", "rtx-remix", "logs"),     "DXVK_LOG_PATH"     }
   };
@@ -71,7 +76,6 @@ public:
     return s_paths[id];
   }
   static void print();
-  static void mkDirs(const fspath& path);
 };
 
 }

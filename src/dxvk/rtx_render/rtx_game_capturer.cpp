@@ -50,6 +50,8 @@
 #include "rtx_matrix_helpers.h"
 #include "rtx_lights.h"
 
+#include "../util/util_globaltime.h"
+
 #include <filesystem>
 
 #define BASE_DIR (util::RtxFileSys::path(util::RtxFileSys::Captures).string())
@@ -81,9 +83,13 @@ namespace dxvk {
       meta.alphaTestReferenceValue = rtInstance.surface.alphaState.alphaTestReferenceValue;
       meta.alphaTestCompareOp = (uint32_t) rtInstance.surface.alphaState.alphaTestType;
       meta.alphaBlendEnabled = !rtInstance.surface.alphaState.isBlendingDisabled;
-      meta.srcColorBlendFactor = (uint32_t) rtInstance.surface.srcColorBlendFactor;
-      meta.dstColorBlendFactor = (uint32_t) rtInstance.surface.dstColorBlendFactor;
-      meta.colorBlendOp = (uint32_t) rtInstance.surface.colorBlendOp;
+      meta.srcColorBlendFactor = (uint32_t) rtInstance.surface.blendModeState.colorSrcFactor;
+      meta.dstColorBlendFactor = (uint32_t) rtInstance.surface.blendModeState.colorDstFactor;
+      meta.colorBlendOp = (uint32_t) rtInstance.surface.blendModeState.colorBlendOp;
+      meta.srcAlphaBlendFactor = (uint32_t) rtInstance.surface.blendModeState.alphaSrcFactor;
+      meta.dstAlphaBlendFactor = (uint32_t) rtInstance.surface.blendModeState.alphaDstFactor;
+      meta.alphaBlendOp = (uint32_t) rtInstance.surface.blendModeState.alphaBlendOp;
+      meta.writeMask = (uint32_t) rtInstance.surface.blendModeState.writeMask;
       meta.textureColorArg1Source = (uint32_t) rtInstance.surface.textureColorArg1Source;
       meta.textureColorArg2Source = (uint32_t) rtInstance.surface.textureColorArg2Source;
       meta.textureColorOperation = (uint32_t) rtInstance.surface.textureColorOperation;
@@ -92,6 +98,7 @@ namespace dxvk {
       meta.textureAlphaOperation = (uint32_t) rtInstance.surface.textureAlphaOperation;
       meta.tFactor = rtInstance.surface.tFactor;
       meta.isTextureFactorBlend = rtInstance.surface.isTextureFactorBlend;
+      meta.isVertexColorBakedLighting = rtInstance.surface.isVertexColorBakedLighting;
       return meta;
     }
 
@@ -126,13 +133,13 @@ namespace dxvk {
   GameCapturer::~GameCapturer() {
   }
 
-  void GameCapturer::step(const Rc<DxvkContext> ctx, const float frameTimeMilliseconds, const HWND hwnd) {
+  void GameCapturer::step(const Rc<DxvkContext> ctx, const HWND hwnd) {
     trigger(ctx);
     if(m_state.has<State::Initializing>()) {
       initCapture(ctx, hwnd);
     }
     if (m_state.has<State::Capturing>()) {
-      capture(ctx, frameTimeMilliseconds);
+      capture(ctx, GlobalTime::get().deltaTimeMs());
     }
     if (m_state.has<State::BeginExport>()) {
       exportUsd(ctx);

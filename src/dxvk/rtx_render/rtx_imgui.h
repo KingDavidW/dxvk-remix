@@ -10,7 +10,8 @@
 
 namespace ImGui {
 
-  IMGUI_API void          SetTooltipUnformatted(const char* text);  // Same as SetTooltip, just without text formatting (so percentage signs do not interfere with tooltips when not desired).
+  IMGUI_API void SetTooltipUnformatted(const char* text);  // Same as SetTooltip, just without text formatting (so percentage signs do not interfere with tooltips when not desired).
+  IMGUI_API bool IsItemHoveredDelay(float delay_in_seconds); // Same as IsItemHovered, but only returns true after the item was hovered for x amount of time
   IMGUI_API void SetTooltipToLastWidgetOnHover(const char* text);  // Conditionally sets tooltip if IsItemHovered() is true
 
   template<typename T>
@@ -41,6 +42,8 @@ namespace ImGui {
   // Adds a tooltip to the imguiCommand and returns boolean result from the passed in imguiCommand
 #define IMGUI_ADD_TOOLTIP(imguiCommand, tooltip) ImGui::addTooltipAndPassthroughValue((imguiCommand), tooltip)
 
+  IMGUI_API void TextCentered(const char* fmt, ...);
+  IMGUI_API void TextWrappedCentered(const char* fmt, ...);
   IMGUI_API bool Checkbox(const char* label, dxvk::RtxOption<bool>* rtxOption);
   IMGUI_API bool Combo(const char* label, int* current_item, const std::pair<const char*, const char*> items[], int items_count, int popup_max_height_in_items = -1);
   IMGUI_API bool Combo(const char* label, int* current_item, bool(*items_getter)(void* data, int idx, const char** out_text, const char** out_tooltip), void* data, int items_count, int popup_max_height_in_items = -1);
@@ -294,6 +297,29 @@ namespace ImGui {
     }
     return changed;
   }
+  
+  template <typename ... Args>
+  IMGUI_API bool DragFloatRange(const char* label, std::array<dxvk::RtxOption<float>*, 2> options, Args&& ... args) {
+    PushID(label);
+
+    PushItemWidth(120);
+
+    PushID("min");
+    bool changed1 = DragFloat("", options[0], std::forward<Args>(args)...);
+    PopID();
+    SameLine();
+
+    PushID("max");
+    bool changed2 = DragFloat("", options[1], std::forward<Args>(args)...);
+    PopID();
+    PopItemWidth();
+
+    SameLine();
+
+    Text(label);
+    PopID();
+    return changed1 || changed2;
+  }
 
   // Variant handling RtxOption as input
   template <typename ... Args>
@@ -366,6 +392,17 @@ namespace ImGui {
   IMGUI_API bool ColorPicker3(const char* label, dxvk::RtxOption<dxvk::Vector3>* rtxOption, Args&& ... args) {
     dxvk::Vector3 value = rtxOption->get();
     bool changed = IMGUI_ADD_TOOLTIP(ColorPicker3(label, value.data, std::forward<Args>(args)...), rtxOption->getDescription());
+    if (changed) {
+      rtxOption->setDeferred(value);
+    }
+    return changed;
+  }
+
+  // Variant handling RtxOption as input
+  template <typename ... Args>
+  IMGUI_API bool ColorPicker4(const char* label, dxvk::RtxOption<dxvk::Vector4>* rtxOption, Args&& ... args) {
+    dxvk::Vector4 value = rtxOption->get();
+    bool changed = IMGUI_ADD_TOOLTIP(ColorPicker4(label, value.data, std::forward<Args>(args)...), rtxOption->getDescription());
     if (changed) {
       rtxOption->setDeferred(value);
     }
