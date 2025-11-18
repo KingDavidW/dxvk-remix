@@ -24,6 +24,8 @@
 #include "../util/util_env.h"
 #include "../util/util_filesys.h"
 #include <filesystem>
+#include <sstream>
+#include <iomanip>
 
 namespace dxvk {
 namespace {
@@ -58,9 +60,10 @@ std::string propertyTypeToOgnType(RtComponentPropertyType type) {
     case RtComponentPropertyType::Int32: return "int";
     case RtComponentPropertyType::Uint32: return "uint";
     case RtComponentPropertyType::Uint64: return "uint64";
+    case RtComponentPropertyType::String: return "token";
+    case RtComponentPropertyType::AssetPath: return "token";
+    case RtComponentPropertyType::Hash: return "token";
     case RtComponentPropertyType::Prim: return "target";  // USD Relationship to a prim
-    case RtComponentPropertyType::String: return "string";
-    case RtComponentPropertyType::AssetPath: return "asset";
   }
   return "unknown";
 }
@@ -101,6 +104,12 @@ std::string getDefaultValueAsJson(const RtComponentPropertyValue& value, RtCompo
       return "\"" + escapeJsonString(std::get<std::string>(value)) + "\"";
     case RtComponentPropertyType::AssetPath:
       return "\"" + escapeJsonString(std::get<std::string>(value)) + "\"";
+    case RtComponentPropertyType::Hash: {
+      // Hash is stored as uint64_t but output as a hex string token in OGN
+      std::ostringstream ss;
+      ss << "\"0x" << std::hex << std::get<uint64_t>(value) << "\"";
+      return ss.str();
+    }
     case RtComponentPropertyType::Prim:
       // Target relationships don't typically have default values in OGN
       return "null";
@@ -238,7 +247,8 @@ bool writeOGNSchema(const RtComponentSpec* spec, const char* outputFolderPath) {
       writePropertyToOGN(outputFile, *inputs[i], i == inputs.size() - 1);
     }
     outputFile << "    }";
-    if (!states.empty() || !outputs.empty()) {
+    // Note: if we ever add states back in, we need to restore the !states.empty() check.
+    if (/*!states.empty() ||*/ !outputs.empty()) {
       outputFile << ",";
     }
     outputFile << std::endl;
@@ -257,6 +267,7 @@ bool writeOGNSchema(const RtComponentSpec* spec, const char* outputFolderPath) {
   //   }
   //   outputFile << std::endl;
   // }
+  // If this section is restored, also restore the !states.empty() check in the inputs section above.
   
   // Write outputs section
   if (!outputs.empty()) {
@@ -298,7 +309,7 @@ bool writePythonStub(const RtComponentSpec* spec, const char* outputFolderPath) 
   outputFile << "from typing import TYPE_CHECKING" << std::endl;
   outputFile << std::endl;
   outputFile << "if TYPE_CHECKING:" << std::endl;
-  outputFile << "    from lightspeed.trex.components.ogn.ogn.OgnTemplateNodePyDatabase import OgnTemplateNodePyDatabase" << std::endl;
+  outputFile << "    from lightspeed.trex.logic.ogn.ogn.OgnTemplateNodePyDatabase import OgnTemplateNodePyDatabase" << std::endl;
   outputFile << std::endl;
   outputFile << std::endl;
   outputFile << "class "<< escapeJsonString(spec->getClassName()) << ":" << std::endl;

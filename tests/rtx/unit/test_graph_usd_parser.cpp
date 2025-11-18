@@ -80,7 +80,7 @@ public:
     
     // Add node:type attribute
     pxr::UsdAttribute typeAttr = nodePrim.CreateAttribute(pxr::TfToken("node:type"), pxr::SdfValueTypeNames->Token);
-    typeAttr.Set(pxr::TfToken("lightspeed.trex.components.TestComponent"));
+    typeAttr.Set(pxr::TfToken("lightspeed.trex.logic.TestComponent"));
     
     // Add node:typeVersion attribute
     pxr::UsdAttribute versionAttr = nodePrim.CreateAttribute(pxr::TfToken("node:typeVersion"), pxr::SdfValueTypeNames->Int);
@@ -109,7 +109,7 @@ public:
     
     // Add required attributes
     pxr::UsdAttribute typeAttr = nodePrim.CreateAttribute(pxr::TfToken("node:type"), pxr::SdfValueTypeNames->Token);
-    typeAttr.Set(pxr::TfToken("lightspeed.trex.components.TestComponent"));
+    typeAttr.Set(pxr::TfToken("lightspeed.trex.logic.TestComponent"));
     
     pxr::UsdAttribute versionAttr = nodePrim.CreateAttribute(pxr::TfToken("node:typeVersion"), pxr::SdfValueTypeNames->Int);
     versionAttr.Set(1);
@@ -250,7 +250,7 @@ void testCreateTestGraph() {
   
   pxr::TfToken typeValue;
   typeAttr.Get(&typeValue);
-  if (typeValue.GetString() != "lightspeed.trex.components.TestComponent") {
+  if (typeValue.GetString() != "lightspeed.trex.logic.TestComponent") {
     throw DxvkError("testCreateTestGraph: typeValue is not 'remix.test.component'");
   }
   
@@ -317,7 +317,7 @@ void testVersionCheck() {
   pxr::SdfPath noVersionNodePath = graphPrim.GetPath().AppendChild(pxr::TfToken("noVersionNode"));
   pxr::UsdPrim noVersionNodePrim = test.m_stage->DefinePrim(noVersionNodePath);
   pxr::UsdAttribute typeAttr = noVersionNodePrim.CreateAttribute(pxr::TfToken("node:type"), pxr::SdfValueTypeNames->Token);
-  typeAttr.Set(pxr::TfToken("lightspeed.trex.components.TestComponent"));
+  typeAttr.Set(pxr::TfToken("lightspeed.trex.logic.TestComponent"));
   
   Logger::info("Expecting 'err:   Node /World/testGraph/noVersionNode is missing a `node:typeVersion` attribute.'");
   result = GraphUsdParserTestApp::versionCheck(noVersionNodePrim, *componentSpec);
@@ -464,7 +464,7 @@ void testSimpleGraph() {
   if (spec->componentType != testSpec->componentType) {
     throw DxvkError("testSimpleGraph: spec componentType mismatch");
   }
-  if (spec->name != "lightspeed.trex.components.TestComponent") {
+  if (spec->name != "lightspeed.trex.logic.TestComponent") {
     throw DxvkError("testSimpleGraph: spec name mismatch");
   }
   
@@ -574,8 +574,8 @@ void testPropertyValueTypes() {
   
   // Test String property
   pxr::SdfPath stringPropertyPath = nodePath.AppendProperty(pxr::TfToken("stringProperty"));
-  pxr::UsdAttribute stringAttr = nodePrim.CreateAttribute(pxr::TfToken("stringProperty"), pxr::SdfValueTypeNames->String);
-  stringAttr.Set(std::string("Test String Value"));
+  pxr::UsdAttribute stringAttr = nodePrim.CreateAttribute(pxr::TfToken("stringProperty"), pxr::SdfValueTypeNames->Token);
+  stringAttr.Set(pxr::TfToken("Test String Value"));
   
   RtComponentPropertySpec stringSpec;
   stringSpec.type = RtComponentPropertyType::String;
@@ -591,8 +591,8 @@ void testPropertyValueTypes() {
   
   // Test AssetPath property
   pxr::SdfPath assetPathPropertyPath = nodePath.AppendProperty(pxr::TfToken("assetPathProperty"));
-  pxr::UsdAttribute assetPathAttr = nodePrim.CreateAttribute(pxr::TfToken("assetPathProperty"), pxr::SdfValueTypeNames->Asset);
-  assetPathAttr.Set(pxr::SdfAssetPath("/path/to/test/asset.usd"));
+  pxr::UsdAttribute assetPathAttr = nodePrim.CreateAttribute(pxr::TfToken("assetPathProperty"), pxr::SdfValueTypeNames->Token);
+  assetPathAttr.Set(pxr::TfToken("/path/to/test/asset.usd"));
   
   RtComponentPropertySpec assetPathSpec;
   assetPathSpec.type = RtComponentPropertyType::AssetPath;
@@ -661,6 +661,7 @@ void testTwoNodeGraph() {
   test.addInputProperty(node1, "inputUint64", "456");
   test.addInputProperty(node1, "inputString", "source_test_string");
   test.addInputProperty(node1, "inputAssetPath", "/path/to/source/asset.usd");
+  test.addInputProperty(node1, "inputHash", "123456789ABCDEF0");
   test.addEnumInputProperty(node1, "inputUint32Enum", "One", {"One", "Two"});
   
   // Add all output properties to source node
@@ -675,6 +676,7 @@ void testTwoNodeGraph() {
   test.addOutputProperty(node1, "outputUint64");
   test.addOutputProperty(node1, "outputString");
   test.addOutputProperty(node1, "outputAssetPath");
+  test.addOutputProperty(node1, "outputHash");
   test.addOutputProperty(node1, "outputUint32Enum");
   
   // Add all input properties to target node with different test values
@@ -689,6 +691,7 @@ void testTwoNodeGraph() {
   test.addInputProperty(node2, "inputUint64", "101112");
   test.addInputProperty(node2, "inputString", "target_test_string");
   test.addInputProperty(node2, "inputAssetPath", "/path/to/target/asset.usd");
+  test.addInputProperty(node2, "inputHash", "FEDCBA9876543210");
   test.addEnumInputProperty(node2, "inputUint32Enum", "Two", {"One", "Two"});
   
   // Connect ALL output properties from source node to corresponding input properties in target node
@@ -704,6 +707,7 @@ void testTwoNodeGraph() {
   test.connectNodes(node1, "outputUint64", node2, "inputUint64");
   test.connectNodes(node1, "outputString", node2, "inputString");
   test.connectNodes(node1, "outputAssetPath", node2, "inputAssetPath");
+  test.connectNodes(node1, "outputHash", node2, "inputHash");
   test.connectNodes(node1, "outputUint32Enum", node2, "inputUint32Enum");
   
   // Connect relationships (for Prim properties)
@@ -713,7 +717,7 @@ void testTwoNodeGraph() {
   // Add path to offset mappings for the test prims
   test.m_pathToOffsetMap[XXH3_64bits(testPrim.GetPath().GetString().c_str(), testPrim.GetPath().GetString().size())] = 100;
 
-  size_t numConnections = 13;
+  size_t numConnections = 14;
   
   // Test DAG sorting
   std::vector<GraphUsdParserTestApp::DAGNode> nodes = GraphUsdParserTestApp::getDAGSortedNodes(graphPrim);
@@ -779,9 +783,10 @@ void testTwoNodeGraph() {
     {"outputInt32", "inputInt32"},
     {"outputUint32", "inputUint32"},
     {"outputUint64", "inputUint64"},
-    {"outputPrim", "inputPrim"},
     {"outputString", "inputString"},
     {"outputAssetPath", "inputAssetPath"},
+    {"outputHash", "inputHash"},
+    {"outputPrim", "inputPrim"},
     {"outputUint32Enum", "inputUint32Enum"}
   };
   
@@ -797,12 +802,12 @@ void testTwoNodeGraph() {
   }
   
   // Verify the total number of values
-  // We should have 35 properties per node, but 13 of them are shared (the connected ones)
-  // So total = 35 + 35 - 13 = 57 values
+  // Each node has the same number of properties, but numConnections of them are shared (the connected ones)
+  // So total = properties * 2 - numConnections
   size_t expectedValues = components::TestComponent::getStaticSpec()->properties.size() * 2 - numConnections;
   if (graphState.values.size() != expectedValues) {
     throw DxvkError(str::format("testTwoNodeGraph: graphState.values should be size ", expectedValues, 
-                                " (35 properties per node - ", numConnections, " shared connections), but is ", graphState.values.size()));
+                                " (", components::TestComponent::getStaticSpec()->properties.size(), " properties per node - ", numConnections, " shared connections), but is ", graphState.values.size()));
   }
   
   Logger::info("two node graph with all properties connected test passed");
@@ -837,6 +842,7 @@ void testAllPropertyTypesAsStrings() {
   test.addInputProperty(nodePrim, "inputUint64", "456");
   test.addInputProperty(nodePrim, "inputString", "test_string_value");
   test.addInputProperty(nodePrim, "inputAssetPath", "/path/to/test/asset.usd");
+  test.addInputProperty(nodePrim, "inputHash", "0xABCDEF0123456789");
   test.addEnumInputProperty(nodePrim, "inputUint32Enum", "One", {"One", "Two"});
   
   // Test parsing the graph
@@ -874,17 +880,20 @@ void testAllPropertyTypesAsStrings() {
   if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint64>>(graphState.values[8])) {
     throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[8] should hold Uint64, instead it holds ", graphState.values[8].index()));
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Prim>>(graphState.values[9])) {
-    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[9] should hold Prim, instead it holds ", graphState.values[9].index()));
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::String>>(graphState.values[9])) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[9] should hold String, instead it holds ", graphState.values[9].index()));
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::String>>(graphState.values[10])) {
-    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[10] should hold String, instead it holds ", graphState.values[10].index()));
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::AssetPath>>(graphState.values[10])) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[10] should hold AssetPath, instead it holds ", graphState.values[10].index()));
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::AssetPath>>(graphState.values[11])) {
-    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[11] should hold AssetPath, instead it holds ", graphState.values[11].index()));
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Hash>>(graphState.values[11])) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[11] should hold Hash, instead it holds ", graphState.values[11].index()));
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint32>>(graphState.values[12])) {
-    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[12] should hold Uint32 (enum), instead it holds ", graphState.values[12].index()));
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Prim>>(graphState.values[12])) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[12] should hold Prim, instead it holds ", graphState.values[12].index()));
+  }
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint32>>(graphState.values[13])) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[13] should hold Uint32 (enum), instead it holds ", graphState.values[13].index()));
   }
 
   if (std::get<uint8_t>(graphState.values[0]) != 1) {
@@ -914,17 +923,20 @@ void testAllPropertyTypesAsStrings() {
   if (std::get<uint64_t>(graphState.values[8]) != 456) {
     throw DxvkError("testAllPropertyTypesAsStrings: values[8] should be 456");
   }
-  if (std::get<uint32_t>(graphState.values[9]) != ReplacementInstance::kInvalidReplacementIndex) {
-    throw DxvkError("testAllPropertyTypesAsStrings: values[9] should be ReplacementInstance::kInvalidReplacementIndex");
+  if (std::get<std::string>(graphState.values[9]) != "test_string_value") {
+    throw DxvkError("testAllPropertyTypesAsStrings: values[9] should be 'test_string_value'");
   }
-  if (std::get<std::string>(graphState.values[10]) != "test_string_value") {
-    throw DxvkError("testAllPropertyTypesAsStrings: values[10] should be 'test_string_value'");
+  if (std::get<std::string>(graphState.values[10]) != "/path/to/test/asset.usd") {
+    throw DxvkError("testAllPropertyTypesAsStrings: values[10] should be '/path/to/test/asset.usd'");
   }
-  if (std::get<std::string>(graphState.values[11]) != "/path/to/test/asset.usd") {
-    throw DxvkError("testAllPropertyTypesAsStrings: values[11] should be '/path/to/test/asset.usd'");
+  if (std::get<uint64_t>(graphState.values[11]) != 0xABCDEF0123456789) {
+    throw DxvkError(str::format("testAllPropertyTypesAsStrings: values[11] should be 0xABCDEF0123456789, but is ", std::get<uint64_t>(graphState.values[11])));
   }
-  if (std::get<uint32_t>(graphState.values[12]) != 1) {
-    throw DxvkError("testAllPropertyTypesAsStrings: values[12] should be 1 (One)");
+  if (std::get<uint32_t>(graphState.values[12]) != ReplacementInstance::kInvalidReplacementIndex) {
+    throw DxvkError("testAllPropertyTypesAsStrings: values[12] should be ReplacementInstance::kInvalidReplacementIndex");
+  }
+  if (std::get<uint32_t>(graphState.values[13]) != 1) {
+    throw DxvkError("testAllPropertyTypesAsStrings: values[13] should be 1 (One)");
   }
   // relationships can't be set via string / token, so not testing the values here.
 
@@ -982,11 +994,14 @@ void testAllPropertyTypes() {
   attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputUint64"), pxr::SdfValueTypeNames->UInt64);
   attr.Set(uint64_t(456));
 
-  attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputString"), pxr::SdfValueTypeNames->String);
-  attr.Set(std::string("test_string_value"));
+  attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputString"), pxr::SdfValueTypeNames->Token);
+  attr.Set(pxr::TfToken("test_string_value"));
 
-  attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputAssetPath"), pxr::SdfValueTypeNames->Asset);
-  attr.Set(pxr::SdfAssetPath("/path/to/test/asset.usd"));
+  attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputAssetPath"), pxr::SdfValueTypeNames->Token);
+  attr.Set(pxr::TfToken("/path/to/test/asset.usd"));
+
+  attr = nodePrim.CreateAttribute(pxr::TfToken("inputs:inputHash"), pxr::SdfValueTypeNames->Token);
+  attr.Set(pxr::TfToken("ABCDEF0123456789"));
 
   pxr::UsdRelationship rel = nodePrim.CreateRelationship(pxr::TfToken("inputs:inputPrim"));
   rel.SetTargets({meshPrim.GetPath()});
@@ -1030,17 +1045,20 @@ void testAllPropertyTypes() {
   if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint64>>(graphState.values[8])) {
     throw DxvkError("testAllPropertyTypes: values[8] should hold Uint64");
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Prim>>(graphState.values[9])) {
-    throw DxvkError("testAllPropertyTypes: values[9] should hold Prim");
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::String>>(graphState.values[9])) {
+    throw DxvkError("testAllPropertyTypes: values[9] should hold String");
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::String>>(graphState.values[10])) {
-    throw DxvkError("testAllPropertyTypes: values[10] should hold String");
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::AssetPath>>(graphState.values[10])) {
+    throw DxvkError("testAllPropertyTypes: values[10] should hold AssetPath");
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::AssetPath>>(graphState.values[11])) {
-    throw DxvkError("testAllPropertyTypes: values[11] should hold AssetPath");
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Hash>>(graphState.values[11])) {
+    throw DxvkError("testAllPropertyTypes: values[11] should hold Hash");
   }
-  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint32>>(graphState.values[12])) {
-    throw DxvkError("testAllPropertyTypes: values[12] should hold Uint32 (enum)");
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Prim>>(graphState.values[12])) {
+    throw DxvkError("testAllPropertyTypes: values[12] should hold Prim");
+  }
+  if (!std::holds_alternative<RtComponentPropertyTypeToCppType<RtComponentPropertyType::Uint32>>(graphState.values[13])) {
+    throw DxvkError("testAllPropertyTypes: values[13] should hold Uint32 (enum)");
   }
 
   if (std::get<uint8_t>(graphState.values[0]) != 1) {
@@ -1070,17 +1088,20 @@ void testAllPropertyTypes() {
   if (std::get<uint64_t>(graphState.values[8]) != 456) {
     throw DxvkError(str::format("testAllPropertyTypes: values[8] should be 456.  value was ", std::get<uint64_t>(graphState.values[8])));
   }
-  if (std::get<uint32_t>(graphState.values[9]) != 10) {
-    throw DxvkError(str::format("testAllPropertyTypes: values[9] should be 10.  value was ", std::get<uint32_t>(graphState.values[9])));
+  if (std::get<std::string>(graphState.values[9]) != "test_string_value") {
+    throw DxvkError(str::format("testAllPropertyTypes: values[9] should be 'test_string_value'.  value was ", std::get<std::string>(graphState.values[9])));
   }
-  if (std::get<std::string>(graphState.values[10]) != "test_string_value") {
-    throw DxvkError(str::format("testAllPropertyTypes: values[10] should be 'test_string_value'.  value was ", std::get<std::string>(graphState.values[10])));
+  if (std::get<std::string>(graphState.values[10]) != "/path/to/test/asset.usd") {
+    throw DxvkError(str::format("testAllPropertyTypes: values[10] should be '/path/to/test/asset.usd'.  value was ", std::get<std::string>(graphState.values[10])));
   }
-  if (std::get<std::string>(graphState.values[11]) != "/path/to/test/asset.usd") {
-    throw DxvkError(str::format("testAllPropertyTypes: values[11] should be '/path/to/test/asset.usd'.  value was ", std::get<std::string>(graphState.values[11])));
+  if (std::get<uint64_t>(graphState.values[11]) != 0xABCDEF0123456789) {
+    throw DxvkError(str::format("testAllPropertyTypes: values[11] should be 0xABCDEF0123456789.  value was ", std::get<uint64_t>(graphState.values[11])));
   }
-  if (std::get<uint32_t>(graphState.values[12]) != 1) {
-    throw DxvkError(str::format("testAllPropertyTypes: values[12] should be 1 (One).  value was ", std::get<uint32_t>(graphState.values[12])));
+  if (std::get<uint32_t>(graphState.values[12]) != 10) {
+    throw DxvkError(str::format("testAllPropertyTypes: values[12] should be 10.  value was ", std::get<uint32_t>(graphState.values[12])));
+  }
+  if (std::get<uint32_t>(graphState.values[13]) != 1) {
+    throw DxvkError(str::format("testAllPropertyTypes: values[13] should be 1 (One).  value was ", std::get<uint32_t>(graphState.values[13])));
   }
 
   Logger::info("all property types test passed");
@@ -1131,6 +1152,57 @@ void testGraphWithCycle() {
   
 }
 
+void testHashType() {
+  Logger::info("Testing Hash type specifically...");
+  
+  GraphUsdParserTest test;
+  GraphUsdParser::PathToOffsetMap pathToOffsetMap;
+  
+  pxr::SdfPath nodePath("/testNode");
+  pxr::UsdPrim nodePrim = test.m_stage->DefinePrim(nodePath);
+  
+  // Test Hash property with hex string (no 0x prefix)
+  pxr::SdfPath hashPropertyPath = nodePath.AppendProperty(pxr::TfToken("hashProperty"));
+  pxr::UsdAttribute hashAttr = nodePrim.CreateAttribute(pxr::TfToken("hashProperty"), pxr::SdfValueTypeNames->Token);
+  hashAttr.Set(pxr::TfToken("FEDCBA9876543210"));
+  
+  RtComponentPropertySpec hashSpec;
+  hashSpec.type = RtComponentPropertyType::Hash;
+  hashSpec.defaultValue = uint64_t(0);
+  
+  RtComponentPropertyValue hashValue = GraphUsdParserTestApp::getPropertyValue(hashAttr, hashSpec, pathToOffsetMap);
+  if (!std::holds_alternative<uint64_t>(hashValue)) {
+    throw DxvkError("testHashType: hashValue should hold uint64_t");
+  }
+  if (std::get<uint64_t>(hashValue) != 0xFEDCBA9876543210) {
+    throw DxvkError(str::format("testHashType: hashValue should be 0xFEDCBA9876543210, but was ", std::get<uint64_t>(hashValue)));
+  }
+  
+  // Test Hash property with hex string (with 0x prefix)
+  pxr::SdfPath hashPropertyPath2 = nodePath.AppendProperty(pxr::TfToken("hashProperty2"));
+  pxr::UsdAttribute hashAttr2 = nodePrim.CreateAttribute(pxr::TfToken("hashProperty2"), pxr::SdfValueTypeNames->Token);
+  hashAttr2.Set(pxr::TfToken("0x123456789ABCDEF0"));
+  
+  RtComponentPropertyValue hashValue2 = GraphUsdParserTestApp::getPropertyValue(hashAttr2, hashSpec, pathToOffsetMap);
+  if (!std::holds_alternative<uint64_t>(hashValue2)) {
+    throw DxvkError("testHashType: hashValue2 should hold uint64_t");
+  }
+  if (std::get<uint64_t>(hashValue2) != 0x123456789ABCDEF0) {
+    throw DxvkError(str::format("testHashType: hashValue2 should be 0x123456789ABCDEF0, but was ", std::get<uint64_t>(hashValue2)));
+  }
+  
+  // Test empty hash property (should return default value)
+  RtComponentPropertyValue emptyHashValue = GraphUsdParserTestApp::getPropertyValue(pxr::UsdAttribute(), hashSpec, pathToOffsetMap);
+  if (!std::holds_alternative<uint64_t>(emptyHashValue)) {
+    throw DxvkError("testHashType: emptyHashValue should hold uint64_t");
+  }
+  if (std::get<uint64_t>(emptyHashValue) != 0) {
+    throw DxvkError("testHashType: emptyHashValue should be 0");
+  }
+  
+  Logger::info("Hash type test passed");
+}
+
 void testStringAndAssetPathTypes() {
   Logger::info("Testing String and AssetPath types specifically...");
   
@@ -1142,8 +1214,8 @@ void testStringAndAssetPathTypes() {
   
   // Test String property
   pxr::SdfPath stringPropertyPath = nodePath.AppendProperty(pxr::TfToken("stringProperty"));
-  pxr::UsdAttribute stringAttr = nodePrim.CreateAttribute(pxr::TfToken("stringProperty"), pxr::SdfValueTypeNames->String);
-  stringAttr.Set(std::string("Hello, World!"));
+  pxr::UsdAttribute stringAttr = nodePrim.CreateAttribute(pxr::TfToken("stringProperty"), pxr::SdfValueTypeNames->Token);
+  stringAttr.Set(pxr::TfToken("Hello, World!"));
   
   RtComponentPropertySpec stringSpec;
   stringSpec.type = RtComponentPropertyType::String;
@@ -1159,8 +1231,8 @@ void testStringAndAssetPathTypes() {
   
   // Test AssetPath property
   pxr::SdfPath assetPathPropertyPath = nodePath.AppendProperty(pxr::TfToken("assetPathProperty"));
-  pxr::UsdAttribute assetPathAttr = nodePrim.CreateAttribute(pxr::TfToken("assetPathProperty"), pxr::SdfValueTypeNames->Asset);
-  assetPathAttr.Set(pxr::SdfAssetPath("/path/to/some/asset.usd"));
+  pxr::UsdAttribute assetPathAttr = nodePrim.CreateAttribute(pxr::TfToken("assetPathProperty"), pxr::SdfValueTypeNames->Token);
+  assetPathAttr.Set(pxr::TfToken("/path/to/some/asset.usd"));
   
   RtComponentPropertySpec assetPathSpec;
   assetPathSpec.type = RtComponentPropertyType::AssetPath;
@@ -1310,7 +1382,7 @@ void testOldPropertyNames() {
     
     // Add required attributes in root layer
     pxr::UsdAttribute typeAttr = nodePrim.CreateAttribute(pxr::TfToken("node:type"), pxr::SdfValueTypeNames->Token);
-    typeAttr.Set(pxr::TfToken("lightspeed.trex.components.TestComponent"));
+    typeAttr.Set(pxr::TfToken("lightspeed.trex.logic.TestComponent"));
     pxr::UsdAttribute versionAttr = nodePrim.CreateAttribute(pxr::TfToken("node:typeVersion"), pxr::SdfValueTypeNames->Int);
     versionAttr.Set(1);
     
@@ -1402,12 +1474,12 @@ void testOldPropertyNames() {
     }
     
     // Verify the total number of values
-    // We should have 33 properties per node, but 1 of them is shared (the connected one)
-    // So total = 33 + 33 - 1 = 65 values
+    // Each node has the same number of properties, but 1 of them is shared (the connected one)
+    // So total = properties * 2 - 1
     size_t expectedValues = components::TestComponent::getStaticSpec()->properties.size() * 2 - 1;
     if (graphState.values.size() != expectedValues) {
       throw DxvkError(str::format("testOldPropertyNames: graphState.values should be size ", expectedValues, 
-                                  " (33 properties per node - 1 shared connection), but is ", graphState.values.size()));
+                                  " (", components::TestComponent::getStaticSpec()->properties.size(), " properties per node - 1 shared connection), but is ", graphState.values.size()));
     }
   }
   
@@ -1479,6 +1551,7 @@ int main() {
     dxvk::testPropertyValueTypes();
     dxvk::testAllPropertyTypesAsStrings();
     dxvk::testAllPropertyTypes();
+    dxvk::testHashType();
     dxvk::testStringAndAssetPathTypes();
     dxvk::testGraphWithCycle();
     dxvk::testOldPropertyNames();

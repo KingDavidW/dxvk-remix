@@ -64,7 +64,8 @@ namespace dxvk {
     None = 0,
     DLSS,
     NIS,
-    TAAU
+    TAAU,
+    XeSS
   };
 
   enum class GraphicsPreset : int {
@@ -87,6 +88,18 @@ namespace dxvk {
     Off = 0,
     On,
     Custom
+  };
+
+  enum class XeSSPreset : int {
+    UltraPerf = 0,
+    Performance,
+    Balanced,
+    Quality,
+    UltraQuality,
+    UltraQualityPlus,
+    NativeAA,
+    Custom,
+    Invalid
   };
 
   enum class NisPreset : int {
@@ -471,7 +484,9 @@ namespace dxvk {
                     "If this is too low, fast moving objects may flicker and have bad lighting.  If it's too high, repeated objects may flicker.\n"
                     "This does not account for sceneScale.", args.minValue = 0.f);
     
-    RTX_OPTION_ARGS("rtx", UIType, showUI, UIType::None, "0 = Don't Show, 1 = Show Simple, 2 = Show Advanced.", 
+    RTX_OPTION("rtx", bool, useNewGuiInputMethod, true, "Disables the previous method for getting mouse/keyboard input and enables a new method which should be more reliable.  If successful the old method will be deprecated.  This setting can't be changed at runtime, so it must be set in a .conf file.");
+
+    RTX_OPTION_ARGS("rtx", UIType, showUI, UIType::None, "0 = Don't Show, 1 = Show Simple, 2 = Show Advanced.",
                     args.environment = "RTX_GUI_DISPLAY_UI",
                     args.flags = RtxOptionFlags::NoSave | RtxOptionFlags::NoReset);
     RTX_OPTION_ARGS("rtx", bool, defaultToAdvancedUI, false, "", args.flags = RtxOptionFlags::NoReset);
@@ -1267,6 +1282,7 @@ namespace dxvk {
     static void updateUpscalerFromDlssPreset();
     static void updateUpscalerFromNisPreset();
     static void updateUpscalerFromTaauPreset();
+    static void updateUpscalerFromXeSSPreset();
     static void updatePresetFromUpscaler();
     static NV_GPU_ARCHITECTURE_ID getNvidiaArch();
     static NV_GPU_ARCH_IMPLEMENTATION_ID getNvidiaChipId();
@@ -1322,6 +1338,8 @@ namespace dxvk {
           RtxOption<bool>::writeOptions(changedConfigs, Option::serializeChangedOptionOnly());
           // Merge changed options into original option layer
           newConfig.merge(changedConfigs);
+        } else {
+          RtxOption<bool>::writeOptions(newConfig, Option::serializeChangedOptionOnly());
         }
       } else {
         RtxOption<bool>::writeOptions(newConfig, Option::serializeChangedOptionOnly());
@@ -1423,6 +1441,7 @@ namespace dxvk {
     }
     static bool isNISEnabled() { return upscalerType() == UpscalerType::NIS; }
     static bool isTAAEnabled() { return upscalerType() == UpscalerType::TAAU; }
+    static bool isXeSSEnabled() { return upscalerType() == UpscalerType::XeSS; }
     
     static float getUniqueObjectDistanceSqr() { return uniqueObjectDistance() * uniqueObjectDistance(); }
     static uint32_t getNumFramesToPutLightsToSleep() { return numFramesToKeepLights() /2; }

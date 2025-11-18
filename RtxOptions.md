@@ -50,7 +50,7 @@ Tables below enumerate all the options and their defaults set by RTX Remix. Note
 |rtx.adaptiveResolutionReservedGPUMemoryGiB|int|2|||The amount of GPU memory in gibibytes to reserve away from consideration for adaptive resolution replacement textures\.<br>This value should only be changed to reflect the estimated amount of memory Remix itself consumes on the GPU \(aside from texture loading, mostly from rendering\-related buffers\) and should not be changed otherwise\.<br>Only relevant when force high resolution replacement textures is disabled and adaptive resolution replacement textures is enabled\. See asset estimated size parameter for more information\.<br>|
 |rtx.aliasing.beginPass|int|0|||The first render pass where the aliasing resource is bound in a frame\.|
 |rtx.aliasing.depth|int|1|||The depth of the aliasing resource\. Required for 3D textures\.|
-|rtx.aliasing.endPass|int|37|||The last render pass where the aliasing resource is bound in a frame\.|
+|rtx.aliasing.endPass|int|38|||The last render pass where the aliasing resource is bound in a frame\.|
 |rtx.aliasing.extentType|int|0|||Specifies the resolution type for the aliasing resource\. If a 3D texture is used, depth must also be set\.|
 |rtx.aliasing.formatCategory|int|-1|||Specifies the texture format compatibility category for the aliasing resource\.|
 |rtx.aliasing.height|int|720|||The height of the aliasing resource in pixels\.|
@@ -813,6 +813,7 @@ Tables below enumerate all the options and their defaults set by RTX Remix. Note
 |rtx.useHighlightUnsafeReplacementMode|bool|False||||
 |rtx.useIntersectionBillboardsOnPrimaryRays|bool|False||||
 |rtx.useLegacyACES|bool|True|||Use a luminance\-only approximation of ACES that over\-saturates the highlights\. If false, use a refined ACES transform that converts between color spaces with more precision\.|
+|rtx.useNewGuiInputMethod|bool|True|||Disables the previous method for getting mouse/keyboard input and enables a new method which should be more reliable\.  If successful the old method will be deprecated\.  This setting can't be changed at runtime, so it must be set in a \.conf file\.|
 |rtx.useObsoleteHashOnTextureUpload|bool|False|||Whether or not to use slower XXH64 hash on texture upload\.<br>New projects should not enable this option as this solely exists for compatibility with older hashing schemes\.|
 |rtx.usePartialDdsLoader|bool|True|||A flag controlling if the partial DDS loader should be used, true to enable, false to disable and use GLI instead\.<br>Generally this should be always enabled as it allows for simple parsing of DDS header information without loading the entire texture into memory like GLI does to retrieve similar information\.<br>Should only be set to false for debugging purposes if the partial DDS loader's logic is suspected to be incorrect to compare against GLI's implementation\.|
 |rtx.usePostFilter|bool|True|||Uses post filter to remove fireflies in the denoised result\.|
@@ -891,6 +892,14 @@ Tables below enumerate all the options and their defaults set by RTX Remix. Note
 |rtx.wboitEnabled|bool|True|||Enables the new rendering mode for handling alpha blended objects\.  Changing this will trigger a shader recompile\.  The new mode improves rendering accuracy, especially in cases where there are many layers of transparent things being rendered\.|
 |rtx.wboitEnergyLossCompensation|float|4|||Multiplier for the coverage term in the weighted blended OIT imlementation \- allows for some configuration to recover energy loss from the technique\.  This is non physical, be careful overtuning |
 |rtx.worldSpaceUiBackgroundOffset|float|-0.01|||Distance along normal to offset objects rendered as worldspace UI, specifically for the background of screens\.|
+|rtx.xess.jitterScale|float|1|||Multiplier for XeSS jitter intensity\. Values \> 1\.0 increase jitter, \< 1\.0 reduce it\. Can help reduce aliasing or temporal artifacts\.|
+|rtx.xess.logJitterSequenceLength|bool|False|||Log the current jitter sequence length being used for XeSS\. Useful for debugging swimming artifacts\.|
+|rtx.xess.minJitterSequenceLength|int|8|||Minimum jitter sequence length for XeSS, even at low scaling factors\.|
+|rtx.xess.preset|int|2|||Adjusts XeSS scaling factor, trades quality for performance\.|
+|rtx.xess.responsivePixelMaskClampValue|float|0.8|||Maximum value to clamp responsive pixel mask to\. XeSS 2\.1 default is 0\.8 to prevent aliasing artifacts\.|
+|rtx.xess.scalingJitterDamping|float|0.6|||Additional jitter damping factor to reduce swimming artifacts\. Lower values = less jitter\.|
+|rtx.xess.useOptimizedJitter|bool|True|||Use XeSS\-optimized jitter patterns and scaling\. When disabled, uses the same jitter as other upscalers\.|
+|rtx.xess.useRecommendedJitterSequenceLength|bool|True|||Use XeSS 2\.1 recommended jitter sequence length calculation based on scaling factor\. When disabled, uses the global cameraJitterSequenceLength setting\.|
 |rtx.zUp|bool|False|||Indicates that the Z axis is the "upward" axis in the world when true, otherwise the Y axis when false\.|
 
 ## Complex Types

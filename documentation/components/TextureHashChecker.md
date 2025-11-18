@@ -1,6 +1,6 @@
 # Texture Hash Checker
 
-Checks if a specific hash was used for material replacement in the current frame\.
+Checks if a specific texture hash was used for material replacement in the current frame\.  This includes textures in all categories, including ignored textures\.
 
 ## Component Information
 
@@ -13,7 +13,7 @@ Checks if a specific hash was used for material replacement in the current frame
 
 | Property | Display Name | Type | IO Type | Default Value | Optional |
 |----------|--------------|------|---------|---------------|----------|
-| textureHash | Texture Hash | Uint64 | Input | 0 | No | 
+| textureHash | Texture Hash | Hash | Input | 0x0 | No | 
 
 ### Texture Hash
 

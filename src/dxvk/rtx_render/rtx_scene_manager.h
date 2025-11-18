@@ -188,6 +188,7 @@ public:
   uint32_t getActivePOMCount() {return m_activePOMCount;}
 
   float getTotalMipBias();
+  float getCalculatedUpscalingMipBias();
 
   // ISceneManager but not really
   void clear(Rc<DxvkContext> ctx, bool needWfi);
@@ -213,11 +214,11 @@ public:
   std::optional<XXH64_hash_t> findLegacyTextureHashByObjectPickingValue(uint32_t objectPickingValue);
   std::vector<ObjectPickingValue> gatherObjectPickingValuesByTextureHash(XXH64_hash_t texHash);
 
-  // Material hash tracking
-  void trackMaterialHash(XXH64_hash_t materialHash);
-  bool isMaterialHashUsedThisFrame(XXH64_hash_t materialHash) const;
-  uint32_t getMaterialHashUsageCount(XXH64_hash_t materialHash) const;
-  void clearFrameMaterialHashes();
+  // Replacement material hash tracking
+  void trackReplacementMaterialHash(XXH64_hash_t materialHash);
+  bool isReplacementMaterialHashUsedThisFrame(XXH64_hash_t materialHash) const;
+  uint32_t getReplacementMaterialHashUsageCount(XXH64_hash_t materialHash) const;
+  void clearFrameReplacementMaterialHashes();
 
   // Mesh hash tracking
   void trackMeshHash(XXH64_hash_t meshHash);
@@ -354,12 +355,11 @@ private:
 
   bool m_isAntiCullingSupported = true;
 
-  // Material hash tracking for current frame (hash -> count)
-  std::unordered_map<XXH64_hash_t, uint32_t> m_currentFrameMaterialHashes;
+  // Replacement material hash tracking for current frame (hash -> count)
+  std::unordered_map<XXH64_hash_t, uint32_t> m_currentFrameReplacementMaterialHashes;
 
   // Mesh hash tracking for current frame (hash -> count)
   std::unordered_map<XXH64_hash_t, uint32_t> m_currentFrameMeshHashes;
 };
 
 }  // namespace nvvk
-
