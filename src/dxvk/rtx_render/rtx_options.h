@@ -1254,25 +1254,25 @@ namespace dxvk {
       m_geometryAssetHashRule = createRule("Geometry asset", geometryAssetHashRuleString());
 
       auto mergedSet = decalTextures();
-      // We deprecated dynamicDecalTextures, singleOffsetDecalTextures, nonOffsetDecalTextures with this change
-      //  and replaced all decal texture lists with just a single list.
-      // TODO(REMIX-2554): Design a general deprecation solution for configs that are no longer required.
-      if (dynamicDecalTextures().size() > 0) {
-        mergedSet.insert(dynamicDecalTextures().begin(), dynamicDecalTextures().end());
-        dynamicDecalTextures.setDeferred({});
-        Logger::info("[Deprecated Config] rtx.dynamicDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
-      }
-      if (singleOffsetDecalTextures().size() > 0) {
-        mergedSet.insert(singleOffsetDecalTextures().begin(), singleOffsetDecalTextures().end());
-        singleOffsetDecalTextures.setDeferred({});
-        Logger::info("[Deprecated Config] rtx.singleOffsetDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
-      }
-      if (nonOffsetDecalTextures().size() > 0) {
-        mergedSet.insert(nonOffsetDecalTextures().begin(), nonOffsetDecalTextures().end());
-        nonOffsetDecalTextures.setDeferred({});
-        Logger::info("[Deprecated Config] rtx.nonOffsetDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
-      }
-      decalTextures.setDeferred(mergedSet);
+      //// We deprecated dynamicDecalTextures, singleOffsetDecalTextures, nonOffsetDecalTextures with this change
+      ////  and replaced all decal texture lists with just a single list.
+      //// TODO(REMIX-2554): Design a general deprecation solution for configs that are no longer required.
+      //if (dynamicDecalTextures().size() > 0) {
+      //  mergedSet.insert(dynamicDecalTextures().begin(), dynamicDecalTextures().end());
+      //  dynamicDecalTextures.setDeferred({});
+      //  Logger::info("[Deprecated Config] rtx.dynamicDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
+      //}
+      //if (singleOffsetDecalTextures().size() > 0) {
+      //  mergedSet.insert(singleOffsetDecalTextures().begin(), singleOffsetDecalTextures().end());
+      //  singleOffsetDecalTextures.setDeferred({});
+      //  Logger::info("[Deprecated Config] rtx.singleOffsetDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
+      //}
+      //if (nonOffsetDecalTextures().size() > 0) {
+      //  mergedSet.insert(nonOffsetDecalTextures().begin(), nonOffsetDecalTextures().end());
+      //  nonOffsetDecalTextures.setDeferred({});
+      //  Logger::info("[Deprecated Config] rtx.nonOffsetDecalTextures has been deprecated, we have moved all your texture's from this list to rtx.decalTextures, no further action is required from you.  Please re-save your rtx config to get rid of this message.");
+      //}
+      //decalTextures.setDeferred(mergedSet);
 
       // Ensure all of the above values are promoted before the first frame starts.
       // DxvkDevice hasn't been created yet, so pass nullptr here.
