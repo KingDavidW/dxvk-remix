@@ -57,9 +57,9 @@ namespace dxvk {
     Bool,
     Int,
     Float,
-    HashSet,
-    HashVector,
-    IntVector,
+    HashSet,     // Merges when present in multiple layers.
+    HashVector,  // Does not merge when present in multiple layers. Use when order & number of elements is important.
+    IntVector,   // TODO[REMIX-4861] unused type, should be removed.
     Vector2,
     Vector3,
     Vector2i,
@@ -712,6 +712,31 @@ namespace dxvk {
       return getValuePtr<fast_unordered_set>(RtxOptionImpl::ValueType::Value)->count(value) > 0;
     }
 
+    // Check if a hash exists in lower priority layers (below runtime layer)
+    // This is useful to warn users that removing a hash from the runtime layer
+    // won't actually remove it from the final resolved value, since lower layers
+    // will still contribute it via additive combination.
+    template<typename = std::enable_if_t<std::is_same_v<T, fast_unordered_set>>>
+    const std::string_view retrieveNonRuntimeConfigName(const XXH64_hash_t& value) const {
+      std::lock_guard<std::mutex> lock(RtxOptionImpl::s_updateMutex);
+      
+      // Iterate through all layers except the runtime layer (highest priority)
+      for (const auto& [layerKey, prioritizedValue] : pImpl->optionLayerValueQueue) {
+        // Skip the runtime layer - we only care about lower priority layers
+        if (layerKey.priority == RtxOptionLayer::s_runtimeOptionLayerPriority) {
+          continue;
+        }
+        
+        // Check if this layer's hash set contains the value
+        const fast_unordered_set* layerHashSet = prioritizedValue.value.hashSet;
+        if (layerHashSet && layerHashSet->count(value) > 0) {
+          return layerKey.configName;
+        }
+      }
+      
+      return std::string_view {};
+    }
+
     T& getDefaultValue() const {
       std::lock_guard<std::mutex> lock(RtxOptionImpl::s_updateMutex);
       return *getValuePtr<T>(RtxOptionImpl::ValueType::DefaultValue);
@@ -1068,9 +1093,4 @@ namespace dxvk {
     args.flags = flagsVar )
 #define RTX_OPTION(category, type, name, value, description) RTX_OPTION_FULL(category, type, name, value, "", 0, description, {})
 #define RTX_OPTION_ARGS(category, type, name, value, description, ...) RTX_OPTION_FULL(category, type, name, value, "", 0, description, __VA_ARGS__)
-
-// NOTE: these are deprecated.  Use args.minValue and args.maxValue as part of RTX_OPTION_ARGS instead.
-#define RTX_OPTION_CLAMP(name, minValue, maxValue) name##Object().setDeferred(std::clamp(name(), minValue, maxValue));
-#define RTX_OPTION_CLAMP_MAX(name, maxValue) name##Object().setDeferred(std::min(name(), maxValue));
-#define RTX_OPTION_CLAMP_MIN(name, minValue) name##Object().setDeferred(std::max(name(), minValue));
 }

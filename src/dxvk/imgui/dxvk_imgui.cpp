@@ -622,11 +622,6 @@ namespace dxvk {
   , m_about  (new ImGuiAbout)
   , m_splash  (new ImGuiSplash)
   , m_graphGUI  (new RtxGraphGUI) {
-    // Clamp Option ranges
-
-    RTX_OPTION_CLAMP(reflexStatRangeInterpolationRate, 0.0f, 1.0f);
-    RTX_OPTION_CLAMP_MIN(reflexStatRangePaddingRatio, 0.0f);
-
     // Set up constant state
     m_rsState.polygonMode       = VK_POLYGON_MODE_FILL;
     m_rsState.cullMode          = VK_CULL_MODE_BACK_BIT;
@@ -2091,42 +2086,58 @@ namespace dxvk {
       }
 #endif
 
-      if (ImGui::CollapsingHeader("Option Layers")) {
+      if (IMGUI_ADD_TOOLTIP(ImGui::CollapsingHeader("Option Layers"), "View what options are present in each layer, and alter the blend strength and threshold for them.")) {
         ImGui::Indent();
+        static char optionLayerFilter[256] = "";
+        if (IMGUI_ADD_TOOLTIP(ImGui::CollapsingHeader("Layer Controls"), "Some utilities for controlling the option layers and display.")) {
+          ImGui::Indent();
 
-        if (IMGUI_ADD_TOOLTIP(ImGui::Button("Disable Layers"), "Reset all settings to Default.")) {
-          for (auto& [unusedLayerKey, optionLayerPtr] : RtxOptionImpl::getRtxOptionLayerMap()) {
-            optionLayerPtr->requestEnabled(false);
+          if (IMGUI_ADD_TOOLTIP(ImGui::Button("Disable Layers"), "All optional layers will be disabled.  The runtime and default layers will remain active.")) {
+            for (auto& [layerKey, optionLayerPtr] : RtxOptionImpl::getRtxOptionLayerMap()) {
+              if (layerKey.priority != RtxOptionLayer::s_runtimeOptionLayerPriority && layerKey.priority != (uint32_t)RtxOptionLayer::SystemLayerPriority::Default) {
+                optionLayerPtr->requestEnabled(false);
+              }
+            }
           }
-        }
 
-        ImGui::SameLine();
-        if (IMGUI_ADD_TOOLTIP(ImGui::Button("Enable Layers"), "Enable all option layers.")) {
-          for (auto& [unusedLayerKey, optionLayerPtr] : RtxOptionImpl::getRtxOptionLayerMap()) {
-            optionLayerPtr->requestEnabled(true);
+          ImGui::SameLine();
+          if (IMGUI_ADD_TOOLTIP(ImGui::Button("Enable Layers"), "Enable all option layers.")) {
+            for (auto& [unusedLayerKey, optionLayerPtr] : RtxOptionImpl::getRtxOptionLayerMap()) {
+              optionLayerPtr->requestEnabled(true);
+            }
           }
-        }
 
-        ImGui::Checkbox("Override configs", &RtxOptions::Option::overwriteConfigObject());
+          // Filter for option layer contents
+          IMGUI_ADD_TOOLTIP(ImGui::InputText("RtxOption Display Filter", optionLayerFilter, IM_ARRAYSIZE(optionLayerFilter)), 
+              "Filter options displayed in the Contents sections. Only options containing this text will be shown.");
+          
+
+          ImGui::Checkbox("Pause Graph Execution", &GraphManager::pauseGraphUpdatesObject());
+          if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+              "Many graphs set `enable`, `blendStrength`, and `blendThreshold` every frame.\n"
+              "Pausing the graph execution will allow controlling these values without interference.");
+          }
+          ImGui::Unindent();
+        }
+        // Pre-compute lowercased filter once for efficiency
+        std::string filterLower = optionLayerFilter;
+        std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
 
         uint32_t optionLayerCounter = 1;
         for (auto& [layerKey, optionLayerPtr] : RtxOptionImpl::getRtxOptionLayerMap()) {
-          // Runtime option layer priority is reserved for real-time user changes.
-          // These layers should not be modified through the GUI.
-          if (layerKey.priority != RtxOptionLayer::s_runtimeOptionLayerPriority) {
-            RtxOptionLayer& optionLayer = *optionLayerPtr;
-            ImGui::Dummy(ImVec2(0.0f, 5.0f));
-            ImGui::Separator();
-            ImGui::Dummy(ImVec2(0.0f, 5.0f));
+          RtxOptionLayer& optionLayer = *optionLayerPtr;
 
+          std::string displayName;
+          
+          if (layerKey.priority != RtxOptionLayer::s_runtimeOptionLayerPriority && layerKey.priority != (uint32_t)RtxOptionLayer::SystemLayerPriority::Default) {
             const std::string optionLayerName = optionLayer.getName();
-            
+
             // Process the display name
-            std::string displayName;
             // construct "rtx-remix/mods/" using OS appropriate separator
             const std::string modsMarker = (std::filesystem::path("rtx-remix") / "mods" / "").string();
             size_t modsPos = optionLayerName.find(modsMarker);
-
+  
             constexpr size_t kLongestPathLength = 30;
             if (modsPos != std::string::npos) {
               // Extract portion after "mods/"
@@ -2137,49 +2148,27 @@ namespace dxvk {
             } else {
               displayName = optionLayerName;
             }
+            bool pendingEnabled = optionLayer.getPendingEnabled();
+            float pendingStrength = optionLayer.getPendingBlendStrength();
+            float pendingThreshold = optionLayer.getPendingBlendThreshold();
             
             const std::string optionLayerText = std::to_string(optionLayerCounter++) + ". " + displayName;
-            const std::string optionLayerStrengthText = " Strength###Strength_" + displayName;
-            const std::string optionLayerThresholdText = " Threshold###Threshold_" + displayName;
+            const bool isLayerActive = pendingEnabled && pendingStrength > pendingThreshold;
             
-            // Use pending values for UI display and send requests on change
-            bool pendingEnabled = optionLayer.getPendingEnabled();
-            if (IMGUI_ADD_TOOLTIP(ImGui::Checkbox(optionLayerText.c_str(), &pendingEnabled), optionLayer.getName().c_str())) {
-              optionLayer.requestEnabled(pendingEnabled);
+            // Dim the header text when the layer is inactive
+            if (!isLayerActive) {
+              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             }
 
-            float pendingStrength = optionLayer.getPendingBlendStrength();
-            if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerStrengthText.c_str(), &pendingStrength, 0.0f, 1.0f),
-                                  "Adjusts the blending strength of this option layer (0 = off, 1 = full effect).")) {
-              optionLayer.requestBlendStrength(pendingStrength);
+            bool headerOpen = IMGUI_ADD_TOOLTIP(ImGui::CollapsingHeader(optionLayerText.c_str(), collapsingHeaderClosedFlags), optionLayer.getName().c_str());
+            
+            if (!isLayerActive) {
+              ImGui::PopStyleColor();
             }
-
-            float pendingThreshold = optionLayer.getPendingBlendThreshold();
-            if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerThresholdText.c_str(), &pendingThreshold, 0.0f, 1.0f),
-                                  "Sets the blending strength threshold for this option layer. Only applicable to non-float variables. The option is applied only when the blend strength exceeds this threshold.")) {
-              optionLayer.requestBlendThreshold(pendingThreshold);
-            }
-
-            // TODO: We need to move these part into a separate saving session
-            // std::string layerType;
-            // if (optionLayerName == "rtx.conf") {
-            //   layerType = "RTX";
-            // } else if (optionLayerName == "quality.conf") {
-            //   layerType = "Quality";
-            // } else if (optionLayerName == "user.conf") {
-            //   layerType = "Runtime";
-            // } else {
-            //   layerType = optionLayerName;
-            // }
-            // const std::string optionLayerSavingText = RtxOptions::Option::saveToLayerConf() || displayName == "rtx.conf"?
-            //   "Save all settings from " + layerType + " layer to " + displayName :
-            //   "Save all settings from " + layerType + " layer to rtx.conf";
-            // if (IMGUI_ADD_TOOLTIP(ImGui::Button(optionLayerSavingText.c_str()), "Save layer to rtx.conf")) {
-            //   RtxOptions::serializeOptionLayer(optionLayer, RtxOptions::Option::saveToLayerConf());
-            // }
-
-            if (ImGui::CollapsingHeader(("Contents of " + displayName).c_str(), collapsingHeaderClosedFlags)) {
+            
+            if (headerOpen) {
               ImGui::Indent();
+
               const std::string priorityText = "Priority: " + std::to_string(optionLayer.getPriority());
               ImGui::Text(priorityText.c_str());
               if (ImGui::IsItemHovered()) {
@@ -2189,9 +2178,104 @@ namespace dxvk {
                   "If a layer's blendWeight is not 1 and the option is a float or Vector type,\n"
                   "then the values will be calculated as LERP(previousValue, layerValue, blendWeight).");
               }
-              for (const auto& option : optionLayer.getConfig().getOptions()) {
-                const std::string optionText = option.first + "=" + option.second;
-                ImGui::TextWrapped(optionText.c_str());
+
+              const std::string optionLayerEnabledText = "Enabled###Enabled_" + displayName;
+              const std::string optionLayerStrengthText = " Strength###Strength_" + displayName;
+              const std::string optionLayerThresholdText = " Threshold###Threshold_" + displayName;
+              const std::string optionLayerContentsText = "Contents###Contents_" + displayName;
+              
+              // Use pending values for UI display and send requests on change
+              if (IMGUI_ADD_TOOLTIP(ImGui::Checkbox(optionLayerEnabledText.c_str(), &pendingEnabled), "Check to enable the option layer. Uncheck to disable it.")) {
+                optionLayer.requestEnabled(pendingEnabled);
+              }
+
+              if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerStrengthText.c_str(), &pendingStrength, 0.0f, 1.0f),
+                                    "Adjusts the blending strength of this option layer (0 = off, 1 = full effect).")) {
+                optionLayer.requestBlendStrength(pendingStrength);
+              }
+
+              if (IMGUI_ADD_TOOLTIP(ImGui::SliderFloat(optionLayerThresholdText.c_str(), &pendingThreshold, 0.0f, 1.0f),
+                                    "Sets the blending strength threshold for this option layer. Only applicable to non-float variables.\n"
+                                    "The option is applied only when the blend strength exceeds this threshold.")) {
+                optionLayer.requestBlendThreshold(pendingThreshold);
+              }
+
+              if (ImGui::CollapsingHeader(optionLayerContentsText.c_str(), collapsingHeaderClosedFlags)) {
+                ImGui::Indent();
+                for (const auto& option : optionLayer.getConfig().getOptions()) {
+                  // Apply filter if one is set
+                  if (!filterLower.empty()) {
+                    std::string optionLower = option.first;
+                    std::transform(optionLower.begin(), optionLower.end(), optionLower.begin(), ::tolower);
+                    if (optionLower.find(filterLower) == std::string::npos) {
+                      continue;
+                    }
+                  }
+                  const std::string optionText = option.first + "=" + option.second;
+                  ImGui::TextWrapped(optionText.c_str());
+                }
+                ImGui::Unindent();
+              }
+              ImGui::Unindent();
+            }
+          } else {
+            // Runtime and default option layers don't have configs in the same way as the other layers, so print them differently
+            // The blend and enabled settings for these layers should not be modified through the GUI.
+            bool headerOpen = false;
+            if (layerKey.priority == RtxOptionLayer::s_runtimeOptionLayerPriority) {
+              displayName = "runtime layer";
+              const std::string optionLayerText = std::to_string(optionLayerCounter++) + ". user.conf and runtime changes";
+              headerOpen = IMGUI_ADD_TOOLTIP(ImGui::CollapsingHeader(optionLayerText.c_str(), collapsingHeaderClosedFlags), 
+                  "This layer is initialized from user.conf, but includes any options that are changed at runtime (either through the GUI, the API, or when applying presets).");
+            } else {
+              displayName = "default";
+              const std::string optionLayerText = std::to_string(optionLayerCounter++) + ". default";
+              headerOpen = IMGUI_ADD_TOOLTIP(ImGui::CollapsingHeader(optionLayerText.c_str(), collapsingHeaderClosedFlags), 
+                  "This is the default setting for each option, as can be seen in RtxOptions.md.");
+            }
+            if (headerOpen) {
+              ImGui::Indent();
+              if (layerKey.priority == RtxOptionLayer::s_runtimeOptionLayerPriority) {
+                ImGui::Text("Priority: MAX");
+                if (ImGui::IsItemHovered()) {
+                  ImGui::SetTooltip("Highest possible priority - any changes made in this layer will apply fully regardless of options in other layers.\n"
+                    "The actual priority value is 4,294,967,295, or uint32's max value.");
+                }
+              } else {
+                ImGui::Text("Priority: 0");
+                if (ImGui::IsItemHovered()) {
+                  ImGui::SetTooltip("Lowest possible priority - every other layer will be applied on top of this layer.");
+                }
+              }
+              const std::string optionLayerContentsText = "Contents###Contents_" + displayName;
+              
+              if (ImGui::CollapsingHeader(optionLayerContentsText.c_str(), collapsingHeaderClosedFlags)) {
+                ImGui::Indent();
+                
+                // For runtime layer, iterate through all options and find those with runtime layer values
+                // (the runtime layer's config is empty since values are stored in each option's optionLayerValueQueue)
+                for (const auto& [optionHash, optionPtr] : RtxOptionImpl::getGlobalRtxOptionMap()) {
+                  const RtxOptionImpl& rtxOption = *optionPtr;
+                  // Check if this option has a runtime layer value (first entry has runtime priority)
+                  if (!rtxOption.optionLayerValueQueue.empty() &&
+                      rtxOption.optionLayerValueQueue.begin()->first.priority == optionLayer.getPriority()) {
+                    const std::string fullName = rtxOption.getFullName();
+                    
+                    // Apply filter if one is set
+                    if (!filterLower.empty()) {
+                      std::string optionLower = fullName;
+                      std::transform(optionLower.begin(), optionLower.end(), optionLower.begin(), ::tolower);
+                      if (optionLower.find(filterLower) == std::string::npos) {
+                        continue;
+                      }
+                    }
+                    
+                    const std::string optionText = fullName + "=" + 
+                      rtxOption.genericValueToString(rtxOption.optionLayerValueQueue.begin()->second.value);
+                    ImGui::TextWrapped(optionText.c_str());
+                  }
+                }
+                ImGui::Unindent();
               }
               ImGui::Unindent();
             }
@@ -2285,6 +2369,80 @@ namespace dxvk {
       return str.str();
     }
 
+    // State for hash removal warning popup
+    namespace {
+      bool g_showWarning = false;
+      XXH64_hash_t g_pendingHash = kEmptyHash;
+      std::string g_pendingCategoryId;
+      std::string g_pendingConfigName;
+
+      void openHashRemovalWarning(XXH64_hash_t textureHash, const char* uniqueId, const std::string_view configName, RtxOption<fast_unordered_set>* textureSet) {
+        g_showWarning = true;
+        g_pendingHash = textureHash;
+        g_pendingCategoryId = uniqueId;
+        g_pendingConfigName = configName,
+        ImGui::OpenPopup("Hash Removal Warning");
+      }
+
+      void closeHashRemovalWarning() {
+        g_showWarning = false;
+        g_pendingHash = kEmptyHash;
+        g_pendingCategoryId.clear();
+        g_pendingConfigName.clear();
+      }
+
+      // Returns true if the popup is being shown
+      bool showHashRemovalWarning() {
+        if (!g_showWarning) {
+          return false;
+        }
+
+        bool popupOpen = true;
+        if (ImGui::BeginPopupModal("Hash Removal Warning", &popupOpen, ImGuiWindowFlags_AlwaysAutoResize)) {
+          ImGui::TextWrapped("WARNING: Cannot remove this texture!");
+          ImGui::Separator();
+          ImGui::Spacing();
+          
+          ImGui::TextWrapped(
+            "This texture's hash is saved in a non-runtime config file (%s) and cannot be removed through the run-time interface.\nTo remove it, you must manually edit the %s config file and remove the texture hash from the texture category.", g_pendingConfigName.c_str(), g_pendingConfigName.c_str());
+          
+          ImGui::Spacing();
+          ImGui::Separator();
+          ImGui::Spacing();
+          
+          ImGui::Text("Hash: 0x%016llX", g_pendingHash);
+          ImGui::Text("Category: %s", g_pendingCategoryId.c_str());
+          
+          ImGui::Spacing();
+          ImGui::Separator();
+          ImGui::Spacing();
+
+          // Center the buttons
+          float buttonWidth = 120.0f;
+          float totalWidth = buttonWidth * 2 + ImGui::GetStyle().ItemSpacing.x;
+          float offsetX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
+
+          if (offsetX > 0) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+          }
+
+          if (ImGui::Button("OK", ImVec2(buttonWidth, 0))) {
+            closeHashRemovalWarning();
+            ImGui::CloseCurrentPopup();
+          }
+
+          ImGui::EndPopup();
+          return true;
+        }
+
+        if (!popupOpen) {
+          closeHashRemovalWarning();
+        }
+
+        return false;
+      }
+    }
+
     void toggleTextureSelection(XXH64_hash_t textureHash, const char* uniqueId, RtxOption<fast_unordered_set>* textureSet) {
       if (textureHash == kEmptyHash) {
         return;
@@ -2292,8 +2450,17 @@ namespace dxvk {
 
       const char* action;
       if (textureSet->containsHash(textureHash)) {
-        textureSet->removeHash(textureHash);
-        action = "removed";
+        // Check if this hash exists in config layers
+        const std::string_view configFileName = textureSet->retrieveNonRuntimeConfigName(textureHash);
+        if (!configFileName.empty()) {
+          // Show warning popup instead of immediately removing
+          openHashRemovalWarning(textureHash, uniqueId, configFileName, textureSet);
+          return; // Don't remove yet - wait for user confirmation
+        } else {
+          // Safe to remove - only exists in runtime layer
+          textureSet->removeHash(textureHash);
+          action = "removed";
+        }
       } else {
         textureSet->addHash(textureHash);
         action = "added";
@@ -2328,7 +2495,7 @@ namespace dxvk {
       std::atomic<XXH64_hash_t> g_holdingTexture {};
       bool g_openWhenAvailable {};
 
-      void openImguiPopupOrToogle() {
+      void openImguiPopupOrToggle() {
         // don't show popup window and toggle the list directly,
         // if was a left mouse click in the splitted lists
         bool toggleWithoutPopup = ImGUI::showLegacyTextureGui() &&
@@ -2351,7 +2518,7 @@ namespace dxvk {
         g_holdingTexture.exchange(texHash.value_or(kEmptyHash));
         g_openWhenAvailable = false;
         // no need to wait, open immediately
-        openImguiPopupOrToogle();
+        openImguiPopupOrToggle();
       }
 
       void openAsync() {
@@ -2369,7 +2536,7 @@ namespace dxvk {
         // delayed open, if waiting async to set g_holdingTexture
         if (g_openWhenAvailable) {
           if (g_holdingTexture.load() != kEmptyHash) {
-            openImguiPopupOrToogle();
+            openImguiPopupOrToggle();
             g_openWhenAvailable = false;
           }
         }
@@ -2392,10 +2559,39 @@ namespace dxvk {
                 // option requires a feature, but the texture doesn't have that feature.
                 continue;
               }
-              if (IMGUI_ADD_TOOLTIP(ImGui::Checkbox(rtxOption.displayName, &rtxOption.bufferToggle), rtxOption.textureSetOption->getDescription())) {
+              
+              // Check if this hash exists in config layers (non-runtime)
+              bool existsInConfigLayers = !rtxOption.textureSetOption->retrieveNonRuntimeConfigName(texHash).empty();
+              
+              // Build display name with warning indicator if hash exists in config layer and is currently checked
+              std::string displayName = rtxOption.displayName;
+              std::string tooltipText = rtxOption.textureSetOption->getDescription();
+              const bool ineffectiveDisable = existsInConfigLayers && rtxOption.bufferToggle;
+              if (ineffectiveDisable) {
+                // Add warning indicator to the label
+                displayName = std::string(rtxOption.displayName) + " [!]";
+                tooltipText = std::string(rtxOption.textureSetOption->getDescription()) + 
+                  "\n\nWARNING: This hash exists in a config file (rtx.conf, mod config, etc.).\n"
+                  "You must edit the source config file to truly remove it.\n";
+
+
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f); // Dim the checkbox but keep it functional
+              }
+
+              if (ImGui::Checkbox(displayName.c_str(), &rtxOption.bufferToggle)) {
                 toggleTextureSelection(texHash, rtxOption.uniqueId, rtxOption.textureSetOption);
               }
+
+              if (ineffectiveDisable) {
+                ImGui::PopStyleVar();
+              }
+
+              ImGui::SetTooltipToLastWidgetOnHover(tooltipText.c_str());
             }
+
+            // Show hash removal warning popup if needed
+            showHashRemovalWarning();
+
             ImGui::EndPopup();
             return texHash;
           }
