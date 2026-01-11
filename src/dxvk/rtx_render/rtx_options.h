@@ -888,6 +888,21 @@ namespace dxvk {
     RTX_OPTION_FLAG_ENV("rtx", bool, enableBreakIntoDebuggerOnPressingB, false, RtxOptionFlags::NoSave, "RTX_BREAK_INTO_DEBUGGER_ON_PRESSING_B",
                     "Enables a break into a debugger at the start of InjectRTX() on a press of key \'B\'.\n"
                     "If debugger is not attached at the time, it will wait until a debugger is attached and break into it then.");
+    
+    // Crash Hotkey Feature (Development builds only)
+    // When enabled via checkbox in the Development tab, pressing the configured hotkey will trigger a deliberate crash.
+    // This is useful for testing crash handling, crash dumps, and crash reporting systems.
+    // The feature is only available in REMIX_DEVELOPMENT builds and defaults to disabled.
+    // The checkbox state is not saved to config files (NoSave), but can be pre-enabled by setting rtx.enableCrashHotkey = True in rtx.conf.
+    RTX_OPTION_FLAG_ENV("rtx", bool, enableCrashHotkey, false, RtxOptionFlags::NoSave, "RTX_ENABLE_CRASH_HOTKEY",
+                    "Arms the crash hotkey feature. When enabled, pressing the crash hotkey combination (Ctrl+Shift+Alt+K by default) will trigger a deliberate crash.\n"
+                    "This option is only available in development builds and is intended for testing crash handling and crash dump generation.\n"
+                    "The armed state is indicated by a red warning overlay on screen. This setting is not saved to config files but can be set manually in rtx.conf.");
+    inline static const VirtualKeys kDefaultCrashHotkey{ VirtualKey{VK_CONTROL}, VirtualKey{VK_SHIFT}, VirtualKey{VK_MENU}, VirtualKey{'K'} };
+    RTX_OPTION_FLAG("rtx", VirtualKeys, crashHotkey, kDefaultCrashHotkey, RtxOptionFlags::NoSave,
+                    "The hotkey combination that triggers a deliberate crash when the crash hotkey feature is armed.\n"
+                    "Default is Ctrl+Shift+Alt+K. Only takes effect when rtx.enableCrashHotkey is True.\n"
+                    "This setting is not saved to config files but can be set manually in rtx.conf.");
     RTX_OPTION_FLAG("rtx", bool, enableInstanceDebuggingTools, false, RtxOptionFlags::NoSave, "NOTE: This will disable temporal correllation for instances, but allow the use of instance developer debug tools");
     RTX_OPTION("rtx", Vector2i, drawCallRange, Vector2i(0, INT32_MAX), "");
     RTX_OPTION("rtx", Vector3, instanceOverrideWorldOffset, Vector3(0.f, 0.f, 0.f), "");
@@ -914,9 +929,13 @@ namespace dxvk {
                         "This flag enables GPU assisted and synchronization validation along with best practices within the Vulkan validation layers which allow for greater error-checking capability at the cost of significant performance impact.\n"
                         "Much like the rtx.enableValidationLayers option, this option should only be enabled by developers during development and not be put into production builds of any project.\n"
                         "Additionally, this setting must be set at startup and changing it will not take effect at runtime.");
+    RTX_OPTION_FLAG_ENV("rtx", bool, logCallstacksOnValidationLayerErrors, true, RtxOptionFlags::NoSave, "DXVK_LOG_CALLSTACKS_ON_VALIDATION_LAYER_ERRORS",
+                        "A flag to enable logging of callstacks when validation layer errors occur.\n"
+                        "This is useful for debugging and development to help track down the source of validation layer errors more easily.\n"
+                        "Requires pdb symbols to be present next to Remix's d3d9 dll and/or in the working directory to resolve symbols.");
 
-    struct Aliasing
-    {
+
+    struct Aliasing {
       RTX_OPTION("rtx.aliasing", RtxFramePassStage, beginPass, RtxFramePassStage::FrameBegin, "The first render pass where the aliasing resource is bound in a frame.");
       RTX_OPTION("rtx.aliasing", RtxFramePassStage, endPass, RtxFramePassStage::FrameEnd, "The last render pass where the aliasing resource is bound in a frame.");
       RTX_OPTION("rtx.aliasing", RtxTextureFormatCompatibilityCategory, formatCategory, RtxTextureFormatCompatibilityCategory::InvalidFormatCompatibilityCategory, "Specifies the texture format compatibility category for the aliasing resource.");
@@ -929,8 +948,7 @@ namespace dxvk {
       RTX_OPTION("rtx.aliasing", VkImageViewType, imageViewType, VkImageViewType::VK_IMAGE_VIEW_TYPE_2D, "The image view type of the aliasing resource (e.g., 1D, 2D, 3D, or cube).");
     } aliasing;
 
-    struct OpacityMicromap
-    {
+    struct OpacityMicromap {
       friend class RtxOptions;
       friend class ImGUI;
       bool isSupported = false;
@@ -1004,6 +1022,10 @@ namespace dxvk {
       RTX_OPTION("rtx.texturemanager", int, stagingBufferSizeMiB, 96,
                  "Size of a pre-allocated staging (intermediate) buffer to use when sending a texture from a RAM to GPU VRAM. "
                  "If a texture size exceeds this limit, it will not be considered for the texture streaming. In mebibytes.");
+      RTX_OPTION_FLAG_ENV("rtx.texturemanager", bool, hotReload, false, RtxOptionFlags::NoSave, "DXVK_TEXTURES_HOTRELOAD",
+                 "While a game is running, if a texture file is modified on a disk, it will be automatically reuploaded to GPU.");
+      RTX_OPTION_FLAG_ENV("rtx.texturemanager", uint, hotReloadRateMs, 100, RtxOptionFlags::NoSave, "DXVK_TEXTURES_HOTRELOAD_RATE_MS",
+                 "Amount of time to wait between filesystem OS events, for texture hot-reloading. In milliseconds.");
     };
     RTX_OPTION("rtx", bool, reloadTextureWhenResolutionChanged, false, "Reload texture when resolution changed.");
     RTX_OPTION_FLAG_ENV("rtx", bool, alwaysWaitForAsyncTextures, false, RtxOptionFlags::NoSave, "DXVK_WAIT_ASYNC_TEXTURES", 
